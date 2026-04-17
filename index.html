@@ -4,60 +4,24 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>LearningIsFun 🏝️</title>
-  <style>
-    body { font-family: sans-serif; background: #1a1a2e; color: #fff; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; }
-    .card { background: #16213e; padding: 24px; border-radius: 12px; max-width: 400px; width: 90%; }
-    h1 { color: #4ade80; }
-    button { background: #4ade80; color: #1a1a2e; border: none; padding: 10px 20px; border-radius: 8px; font-size: 1rem; cursor: pointer; margin: 4px; }
-    .error { color: #f87171; background: #2d1f1f; padding: 12px; border-radius: 8px; margin-top: 12px; font-size: 0.85rem; word-break: break-all; white-space: pre-wrap; }
-    .success { color: #4ade80; margin-top: 12px; }
-    .info { color: #fbbf24; margin-top: 8px; font-size: 0.85rem; }
-  </style>
+  <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <div class="card">
-    <h1>🏝️ LearningIsFun</h1>
-    <p id="s1">⏳ Inline script running...</p>
-    <p id="s2"></p>
-    <div id="err" class="error" style="display:none"></div>
-    <div id="ok" class="success" style="display:none"></div>
+  <div id="app">
+    <div class="loading">Loading...</div>
   </div>
 
-  <!-- PDF.js -->
+  <!-- PDF.js CDN -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
-  <script>pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';</script>
-
-  <!-- App JS -->
-  <script src="js/app.js"></script>
-
-  <!-- Debug bootstrap -->
   <script>
-    var s1 = document.getElementById('s1');
-    var s2 = document.getElementById('s2');
-    var err = document.getElementById('err');
-    var ok = document.getElementById('ok');
-    s1.textContent = '✅ Inline script OK';
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+  </script>
 
-    s2.textContent = '__lif=' + !!window.__lif
-      + ' | typeof render=' + typeof render
-      + ' | typeof navigate=' + typeof navigate
-      + ' | typeof el=' + typeof el
-      + ' | typeof store=' + typeof store;
-
-    if (window.__lif) {
-      ok.style.display = 'block';
-      ok.textContent = '✅ __lif found! Calling navigate("home")...';
-      try {
-        window.__lif.navigate('home');
-        ok.textContent += '\n✅ navigate("home") succeeded!';
-        s1.textContent = '🎉 App rendered!';
-      } catch(e) {
-        err.style.display = 'block';
-        err.textContent = 'navigate() ERROR:\n' + e.message + '\n' + (e.stack||'').split('\n').slice(0,5).join('\n');
-      }
-    } else {
-      err.style.display = 'block';
-      err.textContent = '❌ window.__lif is undefined.\napp.js likely crashed at load time.\n\nPossible causes:\n1. JS syntax error in app.js\n2. Runtime error during initialization\n3. Check browser console (F12) for red errors';
+  <script src="js/app.js"></script>
+  <script>
+    // 同步 script 加载时 DOM 已 ready，直接渲染
+    if (document.readyState !== 'loading') {
+      window.__lif && window.__lif.navigate && window.__lif.navigate('home');
     }
   </script>
 </body>
