@@ -525,7 +525,8 @@ function render() {
   const app = document.getElementById('app');
   app.innerHTML = '';
   const views = { home:renderHome, import:renderImport, study:renderStudy, island:renderIsland, stats:renderStats, wordbank:renderWordBank };
-  (views[currentView] || renderHome)(app);
+  const viewEl = (views[currentView] || renderHome)();
+  if (viewEl) app.appendChild(viewEl);
   app.appendChild(renderNav());
 }
 
