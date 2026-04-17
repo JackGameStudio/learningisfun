@@ -1012,4 +1012,12 @@ function renderWordBank() {
 // ================================================================
 window.__lif = { navigate };
 window.navigate = navigate;
+
+// URL hash 重置: 访问网址加 #reset 清空词库
+if (location.hash === '#reset') {
+  localStorage.clear();
+  location.hash = '';
+  location.reload();
+}
+
 document.addEventListener('DOMContentLoaded', render);
