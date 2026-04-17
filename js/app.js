@@ -5,6 +5,9 @@
 
 import { store } from './vocabulary-store.js';
 import { pdfExtractor } from './pdf-extractor.js';
+import { dictionaryAPI } from './dictionary-api.js';
+import { morphology } from './morphology.js';
+import { sentenceGen } from './sentence-gen.js';
 
 // ===== State =====
 let currentView = 'home';
@@ -175,24 +178,32 @@ function renderImport() {
         wordList.innerHTML += `<br><span class="text-muted">... 还有 ${extractedWords.length - 30} 个词</span>`;
       }
 
-      // Start looking up meanings
+      // Start: lookup meanings + morphology + sentences
       lookupProgress.style.display = 'block';
       importArea.style.display = 'none';
 
-      lookupProgress.done = 0;
-      lookupProgress.total = extractedWords.length;
+      // Batch lookup with progress
+      const lookupResults = await dictionaryAPI.lookupBatch(extractedWords, (done, total) => {
+        lookupStatus.textContent = `${done}/${total}`;
+        lookupBar.style.width = `${(done / total) * 100}%`;
+      });
 
-      // Build import data with placeholder meanings
-      const importData = extractedWords.map(w => ({ word: w, meaning: '' }));
+      // Build full import data
+      const importData = extractedWords.map(word => {
+        const dictResult = lookupResults[word] || {};
+        const morph = morphology.analyze(word);
+        const sentence = sentenceGen.generate(word, dictResult.meaning || '', dictResult.example || '');
 
-      // Show progress as we "lookup" (simplified - actual lookup in Task 4)
-      const BATCH = 5;
-      for (let i = 0; i < extractedWords.length; i += BATCH) {
-        lookupProgress.done = Math.min(i + BATCH, extractedWords.length);
-        lookupStatus.textContent = `${lookupProgress.done}/${extractedWords.length}`;
-        lookupBar.style.width = `${(lookupProgress.done / extractedWords.length) * 100}%`;
-        await sleep(200); // Visual delay
-      }
+        return {
+          word,
+          meaning: dictResult.meaning || '',
+          phonetic: dictResult.phonetic || '',
+          example: sentence,
+          prefix: morph.prefix || '',
+          root: morph.root || '',
+          suffix: morph.suffix || '',
+        };
+      });
 
       lookupProgress.style.display = 'none';
       importArea.style.display = 'block';
@@ -201,8 +212,13 @@ function renderImport() {
       meaningPreview.innerHTML = '<h3 class="mb-sm">📖 待导入词库预览（前20个）</h3>' +
         importData.slice(0, 20).map(w => `
           <div class="flex justify-between items-center" style="padding:4px 0; border-bottom:1px solid var(--color-bg);">
-            <strong>${w.word}</strong>
-            <span class="text-muted">${w.meaning || '释义待补'}</span>
+            <div>
+              <strong>${w.word}</strong>
+              ${w.prefix || w.root ? `<span style="font-size:0.7rem; color:var(--color-accent); margin-left:4px;">${[w.prefix, w.root, w.suffix].filter(Boolean).join('+')}</span>` : ''}
+            </div>
+            <div>
+              <span class="text-muted" style="font-size:0.75rem;">${w.meaning || '❓'}</span>
+            </div>
           </div>
         `).join('');
 
