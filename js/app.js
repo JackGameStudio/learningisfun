@@ -119,7 +119,30 @@ async function extractFromPDF(file) {
   for (let i = 1; i <= pdf.numPages; i++) {
     const page = await pdf.getPage(i);
     const content = await page.getTextContent();
-    allText += content.items.map(item => item.str).join(' ') + '\n';
+    // 用位置信息智能拼接：同一行且间距小的 item 不加空格
+    const items = content.items.filter(item => item.str.trim());
+    let line = '';
+    let lastY = null;
+    let lastRight = null;
+    for (const item of items) {
+      const x = item.transform[4];
+      const y = item.transform[5];
+      const right = x + (item.width || 0);
+      if (lastY !== null && Math.abs(y - lastY) > 5) {
+        // 换行
+        allText += line + '\n';
+        line = item.str;
+      } else if (lastRight !== null && x - lastRight > item.height * 0.3) {
+        // 间距大于字高的30%，加空格
+        line += ' ' + item.str;
+      } else {
+        // 紧挨着，直接拼接（修复 "A"+"pple" → "Apple"）
+        line += item.str;
+      }
+      lastY = y;
+      lastRight = right;
+    }
+    if (line) allText += line + '\n';
   }
   // 按序号拆分词条: "数字. 英文... 中文..."
   const entries = allText.split(/(?=\b\d+\.\s)/);
