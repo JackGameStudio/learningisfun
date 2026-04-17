@@ -149,15 +149,18 @@ async function extractFromPDF(file) {
   const words = [];
   const seen = new Set();
   for (const block of entries) {
-    const m = block.match(/^\d+\.\s*([a-zA-Z][a-zA-Z\s]{1,30}?)\s{2,}([\u4e00-\u9fff].*?)(?:\n|$)/);
+    // 支持单空格或双空格分隔英文和中文
+    const m = block.match(/^\d+\.\s*([a-zA-Z][a-zA-Z\s]{0,30}?)\s+([\u4e00-\u9fff].*?)(?:\n|$)/);
     if (!m) continue;
     const word = m[1].trim();
     const meaning = m[2].trim();
     if (!word || word.length > 30 || seen.has(word.toLowerCase())) continue;
+    // 过滤掉纯中文（误匹配）
+    if (/^[\u4e00-\u9fff]/.test(word)) continue;
     seen.add(word.toLowerCase());
     words.push({ word: word.toLowerCase(), meaning });
   }
-  return { words };
+  return { words, rawText: allText };
 }
 
 const pdfExtractor = { extractFromPDF };
@@ -721,16 +724,30 @@ function renderImport() {
   const importBtn = el('button', {className:'btn btn-success mt-md',style:'width:100%;display:none',id:'import-btn'}, [document.createTextNode('✅ 确认导入')]);
   const importResult = el('p', {className:'mt-md text-center',style:'color:var(--color-success);font-weight:700;display:none'}, []);
 
+  const debugToggle = el('button', {className:'btn mt-sm',style:'font-size:0.75rem;padding:2px 8px',onClick:()=>{
+    const d = document.getElementById('raw-text-debug');
+    d.style.display = d.style.display==='none'?'block':'none';
+  }}, [document.createTextNode('🐛 查看原始文本')]);
+  const debugBox = el('pre', {id:'raw-text-debug',style:'display:none;max-height:200px;overflow:auto;font-size:0.7rem;background:var(--color-bg);padding:8px;border-radius:4px;white-space:pre-wrap;word-break:break-all'}, []);
+
   extractBtn.addEventListener('click', async () => {
     if (!fileInput.files[0]) { alert('请先选择一个 PDF 文件'); return; }
     extractBtn.disabled = true; extractBtn.textContent = '⏳ 提取中...';
     try {
-      const { words } = await pdfExtractor.extractFromPDF(fileInput.files[0]);
+      const { words, rawText } = await pdfExtractor.extractFromPDF(fileInput.files[0]);
       extractBtn.textContent = `✅ 提取到 ${words.length} 个单词`;
       extractBtn.disabled = false;
       preview.style.display = 'block';
       lookupInfo.style.display = 'block';
-      progressBar.style.display = 'block';
+      progressBar.style.display = words.length > 0 ? 'block' : 'none';
+      debugBox.textContent = rawText;
+
+      if (words.length === 0) {
+        previewList.innerHTML = `<p style="color:var(--color-danger)">❌ 未提取到单词，请点下方"查看原始文本"检查格式</p>`;
+        preview.appendChild(debugToggle);
+        preview.appendChild(debugBox);
+        return;
+      }
 
       let imported = 0;
       lookupStatus.textContent = `0/${words.length} (已入库 0)`;
