@@ -308,7 +308,7 @@ const ROOTS = {
   'word':{m:'单词',e:'word,password,keyword'},
   'work':{m:'工作',e:'work,homework,homework,network'},
   'world':{m:'世界',e:'world,worldwide'},
-  'worm':{m:'虫子',e:'worm,earthworm},
+  'worm':{m:'虫子',e:'worm,earthworm'},
   'worn':{m:'磨损的',e:'worn,warning,warning'},
   'worried':{m:'担心的',e:'worried,worry,worrying'},
   'worse':{m:'更糟',e:'worse,worst,worsen'},
