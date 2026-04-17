@@ -1,730 +1,986 @@
 /**
- * app.js — LearningIsFun 主程序
- * 路由、视图渲染、状态管理
+ * app.js — LearningIsFun 主程序（单文件，解决GitHub Pages CORS）
+ * 使用 Free Dictionary API 在线查询
  */
 
-import { store } from './vocabulary-store.js';
-import { pdfExtractor } from './pdf-extractor.js';
-import { dictionaryAPI } from './dictionary-api.js';
-import { morphology } from './morphology.js';
-import { sentenceGen } from './sentence-gen.js';
+// ================================================================
+// MODULE 1: vocabulary-store.js
+// ================================================================
+const STORE_KEY = 'lif_v1';
 
-// ===== State =====
-let currentView = 'home';
-
-// ===== Routing =====
-function navigate(view) {
-  currentView = view;
-  render();
+function loadData() {
+  try {
+    const raw = localStorage.getItem(STORE_KEY);
+    if (!raw) return { version: 1, words: [], meta: {} };
+    return JSON.parse(raw);
+  } catch { return { version: 1, words: [], meta: {} }; }
 }
 
-// ===== Render Dispatcher =====
+function saveData(data) {
+  try { localStorage.setItem(STORE_KEY, JSON.stringify(data)); } catch {}
+}
+
+function uid() {
+  return Math.random().toString(36).slice(2, 9) + Date.now().toString(36);
+}
+
+const store = {
+  getAll() { return loadData().words; },
+  getWord(id) { return loadData().words.find(w => w.id === id) || null; },
+  getStats() {
+    const words = loadData().words;
+    const today = new Date().toISOString().split('T')[0];
+    const total = words.length;
+    const mastered = words.filter(w => w.box >= 4).length;
+    const learning = words.filter(w => w.box >= 2 && w.box < 4).length;
+    const newWords = words.filter(w => !w.lastReview).length;
+    const dueToday = words.filter(w => w.nextReview && w.nextReview <= today).length;
+    const reviewed = words.filter(w => w.lastReview === today);
+    const avgCorrect = reviewed.length > 0
+      ? Math.round(reviewed.reduce((s, w) => s + (w.timesCorrect || 0) / Math.max(1, w.timesReviewed || 1) * 100, 0) / reviewed.length)
+      : 0;
+    return { total, mastered, learning, newWords, dueToday, avgCorrect };
+  },
+  addWord(data) {
+    const d = loadData();
+    const today = new Date().toISOString().split('T')[0];
+    const word = {
+      id: uid(),
+      word: (data.word || '').toLowerCase().trim(),
+      meaning: data.meaning || '',
+      phonetic: data.phonetic || '',
+      example: data.example || '',
+      prefix: data.prefix || '',
+      root: data.root || '',
+      suffix: data.suffix || '',
+      box: 1, interval: 1, ef: 2.5,
+      nextReview: today, lastReview: null,
+      timesReviewed: 0, timesCorrect: 0,
+      createdAt: today,
+      tags: data.tags || [],
+      source: data.source || 'manual'
+    };
+    d.words.push(word);
+    saveData(d);
+    return word;
+  },
+  updateWord(id, fields) {
+    const d = loadData();
+    const idx = d.words.findIndex(w => w.id === id);
+    if (idx < 0) return null;
+    d.words[idx] = { ...d.words[idx], ...fields };
+    saveData(d);
+    return d.words[idx];
+  },
+  deleteWord(id) {
+    const d = loadData();
+    d.words = d.words.filter(w => w.id !== id);
+    saveData(d);
+  },
+  importWords(words, source = 'pdf') {
+    const today = new Date().toISOString().split('T')[0];
+    let count = 0;
+    const d = loadData();
+    const existing = new Set(d.words.map(w => w.word));
+    for (const w of words) {
+      if (!w.word || existing.has(w.word.toLowerCase())) continue;
+      d.words.push({
+        id: uid(),
+        word: w.word.toLowerCase().trim(),
+        meaning: w.meaning || '',
+        phonetic: w.phonetic || '',
+        example: w.example || '',
+        prefix: w.prefix || '',
+        root: w.root || '',
+        suffix: w.suffix || '',
+        box: 1, interval: 1, ef: 2.5,
+        nextReview: today, lastReview: null,
+        timesReviewed: 0, timesCorrect: 0,
+        createdAt: today, tags: [], source
+      });
+      existing.add(w.word.toLowerCase());
+      count++;
+    }
+    saveData(d);
+    return count;
+  },
+  clearAll() { saveData({ version: 1, words: [], meta: {} }); }
+};
+
+// ================================================================
+// MODULE 2: pdf-extractor.js
+// ================================================================
+const PDF_STOP = new Set(['the','be','to','of','and','a','in','that','have','i','it','for','not','on','with','he','as','you','do','at','this','but','his','by','from','they','we','say','her','she','or','an','will','my','one','all','would','there','their','what','so','up','out','if','about','who','get','which','go','me','is','was','are','been','has','had','its','may','can','could','should','shall','just','than','too','very','such','into','then','them','these','those','other','some','any','no','only','own','same','over','after','before','between','under','again','where','when','why','how','each','both','most','few','more','your','our','him','us','himself','herself','themselves','ourselves','now','said','made']);
+
+async function extractFromPDF(file) {
+  const pdf = await window.pdfjsLib.getDocument({ data: await file.arrayBuffer() }).promise;
+  let allText = '';
+  for (let i = 1; i <= pdf.numPages; i++) {
+    const page = await pdf.getPage(i);
+    const content = await page.getTextContent();
+    allText += content.items.map(item => item.str).join(' ') + ' ';
+  }
+  const raw = allText.match(/[a-z]+/gi) || [];
+  const words = [...new Set(raw.map(w => w.toLowerCase()))]
+    .filter(w => /^[a-z]{3,20}$/.test(w))
+    .filter(w => !PDF_STOP.has(w))
+    .sort();
+  return { words };
+}
+
+const pdfExtractor = { extractFromPDF };
+
+// ================================================================
+// MODULE 3: morphology.js（词根词缀）
+// ================================================================
+const ROOTS = {
+  'port':{m:'搬运',e:'export,import,transport'},
+  'mit':{m:'发送',e:'permit,submit,transmit'},
+  'miss':{m:'发送',e:'missile,mission'},
+  'tract':{m:'拉',e:'attract,contract,extract'},
+  'duc':{m:'引导',e:'conduct,produce,reduce'},
+  'scrib':{m:'写',e:'describe,prescribe,subscribe'},
+  'script':{m:'写',e:'script,manuscript'},
+  'pel':{m:'推',e:'compel,expel,propel'},
+  'puls':{m:'推',e:'pulse,impulse,repel'},
+  'pend':{m:'悬挂',e:'suspend,depend,pending'},
+  'pens':{m:'花费',e:'expense,pension,spend'},
+  'spect':{m:'看',e:'respect,inspect,expect'},
+  'struct':{m:'建造',e:'construct,instruct,destroy'},
+  'form':{m:'形式',e:'transform,inform,reform'},
+  'pos':{m:'放置',e:'compose,propose,expose'},
+  'pon':{m:'放置',e:'component,postpone'},
+  'vis':{m:'看',e:'vision,visit,invisible'},
+  'vid':{m:'看',e:'video,evident,provide'},
+  'aud':{m:'听',e:'audio,audience,audit'},
+  'dic':{m:'说',e:'dictate,predict,indicate'},
+  'cap':{m:'拿',e:'capture,capacity,escape'},
+  'cept':{m:'拿',e:'except,intercept,accept'},
+  'fer':{m:'携带',e:'transfer,refer,prefer'},
+  'vert':{m:'转',e:'convert,advert,revert'},
+  'vers':{m:'转',e:'reverse,diverse,universe'},
+  'sist':{m:'站立',e:'resist,exist,insist'},
+  'grad':{m:'走',e:'progress,grade,graduate'},
+  'gress':{m:'走',e:'aggress,congress,progress'},
+  'log':{m:'说',e:'dialogue,apology,psychology'},
+  'loqu':{m:'说',e:'eloquent,colloquial'},
+  'voc':{m:'叫喊',e:'vocabulary,vocation,advocate'},
+  'vok':{m:'叫喊',e:'invoke,evoke,provoke'},
+  'solv':{m:'松开',e:'solve,resolve,dissolve'},
+  'solu':{m:'松开',e:'solution,absolute'},
+  'ply':{m:'折叠',e:'apply,reply,supply,comply'},
+  'ject':{m:'扔',e:'inject,reject,project,object'},
+  'lect':{m:'选择',e:'collect,select,elect'},
+  'ven':{m:'来',e:'prevent,invent,event'},
+  'cid':{m:'切',e:'decide,suicide,incident'},
+  'cis':{m:'切',e:'precise,scissors,incise'},
+  'rupt':{m:'破',e:'interrupt,corrupt,erupt'},
+  'loc':{m:'地方',e:'local,locate,location'},
+  'clud':{m:'关闭',e:'include,exclude,conclude'},
+  'clus':{m:'关闭',e:'conclusion,exclusion'},
+  'flu':{m:'流',e:'fluent,fluid,influence'},
+  'tain':{m:'持有',e:'contain,obtain,maintain'},
+  'cur':{m:'跑',e:'current,occur,recur'},
+  'curs':{m:'跑',e:'course,cursor,discourse'},
+  'bio':{m:'生命',e:'biology,bio'},
+  'geo':{m:'地球',e:'geography,geometry'},
+  'phon':{m:'声音',e:'telephone,microphone'},
+  'cycl':{m:'圆',e:'bicycle,recycle,cycle'},
+  'meter':{m:'测量',e:'thermometer,speedometer'},
+  'techn':{m:'技术',e:'technology,technique'},
+  'nat':{m:'出生',e:'native,natural,nation'},
+  'fin':{m:'结束',e:'finish,finite,infinite,define'},
+  'anim':{m:'生命',e:'animal,animate'},
+  'corp':{m:'身体',e:'corporate,corpse,corpus'},
+  'man':{m:'手',e:'manual,manage,manuscript'},
+  'ped':{m:'脚',e:'pedal,pedestrian'},
+  'graph':{m:'写',e:'telegraph,photograph,paragraph'},
+  'gram':{m:'写',e:'grammar,program,diagram'},
+  'popul':{m:'人民',e:'population,popular,public'},
+  'civ':{m:'公民',e:'civil,civilian,civilization'},
+  'vac':{m:'空',e:'vacant,vacation,vacuum'},
+  'med':{m:'治疗',e:'medicine,medical,remedy'},
+  'psych':{m:'心理',e:'psychology,psycho'},
+  'soci':{m:'社会',e:'social,society,associate'},
+  'claim':{m:'叫',e:'exclaim,proclaim,acclaim'},
+  'cred':{m:'相信',e:'credit,credible,incredible'},
+  'duc':{m:'引导',e:'educate,produce,conduct'},
+  'form':{m:'形式',e:'transform,perform,uniform'},
+  'fract':{m:'破',e:'fracture,fragile,fraction'},
+  'frag':{m:'破',e:'fragment'},
+  'junct':{m:'连接',e:'junction,adjunct,conjunction'},
+  'norm':{m:'标准',e:'normal,enormous,abnormal'},
+  'not':{m:'标记',e:'note,notebook,notice,notify'},
+  'par':{m:'准备',e:'prepare,repair,compare'},
+  'par':{m:'相等',e:'equal,apart,compare'},
+  'part':{m:'部分',e:'part,partner,apart,depart'},
+  'pass':{m:'走',e:'pass,passage,past,compass'},
+  'path':{m:'感情',e:'sympathy,antipathy,apathy'},
+  'pend':{m:'挂',e:'depend,independent,appendix'},
+  'pet':{m:'追求',e:'compete,appetite,repeat'},
+  'pet':{m:'寻找',e:'petition,competent,impetus'},
+  'ply':{m:'折叠',e:'imply,explicit,implicit'},
+  'ply':{m:'充满',e:'apply,supply,comply'},
+  'pound':{m:'放置',e:'compound,expose,compose'},
+  'press':{m:'压',e:'press,pressure,express,impress'},
+  'prim':{m:'第一',e:'primary,primitive,prime'},
+  'pri':{m:'拿',e:'prison,capture,surprise'},
+  'pri':{m:'价格',e:'price,precious,appreciate'},
+  'rect':{m:'直',e:'correct,direct,erect'},
+  'reg':{m:'统治',e:'rule,regular,regulate,royal'},
+  'rupt':{m:'断裂',e:'interrupt,bankrupt,disrupt'},
+  'scrib':{m:'写',e:'describe,prescribe,inscribe'},
+  'sist':{m:'站立',e:'resist,assist,persist,consist'},
+  'solv':{m:'松开',e:'solve,solution,resolve,dissolve'},
+  'spec':{m:'看',e:'spectacular,spectator,respect'},
+  'spir':{m:'呼吸',e:'spirit,inspire,expire,conspire'},
+  'stat':{m:'站立',e:'state,status,statue,estate'},
+  'strict':{m:'拉紧',e:'strict,restrict,district'},
+  'struct':{m:'建造',e:'structure,construct,destroy'},
+  'tain':{m:'保持',e:'contain,obtain,retain,sustain'},
+  'tempt':{m:'尝试',e:'attempt,temptation,contempt'},
+  'tend':{m:'伸展',e:'extend,attend,tend,pretend'},
+  'tens':{m:'伸展',e:'tense,tension,intense,extent'},
+  'term':{m:'边界',e:'term,determine,terminal'},
+  'test':{m:'测试',e:'test,protest,contest,attest'},
+  'text':{m:'编织',e:'text,texture,pretext,context'},
+  'tract':{m:'拉',e:'tractor,attract,contract,distract'},
+  'treat':{m:'处理',e:'treat,treatment,retreat,entreat'},
+  'turb':{m:'搅动',e:'disturb,turmoil,turbine'},
+  'typ':{m:'印',e:'type,typical,typography,prototype'},
+  'vac':{m:'空',e:'vacant,vacuum,vacate'},
+  'vad':{m:'走',e:'invade,evade,pervade'},
+  'val':{m:'价值',e:'value,valid,valuable,evaluate'},
+  'van':{m:'空',e:'vanish,vanity,evacuate'},
+  'vari':{m:'改变',e:'variety,various,vary'},
+  'ven':{m:'来',e:'adventure,convene,intervene'},
+  'vert':{m:'转',e:'convert,revert,divert,advert'},
+  'vict':{m:'征服',e:'victory,convince,evict'},
+  'vid':{m:'看',e:'video,evidence,provide'},
+  'vis':{m:'看',e:'vision,visit,advise,supervise'},
+  'vit':{m:'生命',e:'vital,vitamin,vivid'},
+  'voc':{m:'声音',e:'vocal,vocation,advocate,provoke'},
+  'vol':{m:'卷',e:'volume,volunteer,revolt,evolution'},
+  'vor':{m:'吃',e:'voracious,herbivore,carnivore'},
+  'vow':{m:'誓言',e:'vow,vowel,devour'},
+  'ward':{m:'守护',e:'warden,reward,awkward'},
+  'way':{m:'路',e:'subway,highway,away'},
+  'wealth':{m:'财富',e:'wealth,healthy,stealthy'},
+  'wear':{m:'穿',e:'wear,unaware,hardware,software'},
+  'weather':{m:'天气',e:'weather,whether,wether'},
+  'weep':{m:'哭',e:'weep,sweeping,underwear'},
+  'weigh':{m:'重量',e:'weigh,weight,freight'},
+  'well':{m:'井',e:'well,farewell,welfare,wels'},
+  'wet':{m:'湿',e:'wet,wetter,wetting,sweat'},
+  'what':{m:'什么',e:'whatever,somewhat,anywhat'},
+  'wheel':{m:'轮子',e:'wheel,wheelchair,whoever'},
+  'when':{m:'何时',e:'whenever,somewhen,whence'},
+  'where':{m:'哪里',e:'wherever,somewhere,anywhere'},
+  'whether':{m:'是否',e:'whether,weather,wether'},
+  'which':{m:'哪个',e:'whichever,somewhich'},
+  'while':{m:'当...时',e:'while,worthwhile,whilst'},
+  'whip':{m:'鞭子',e:'whip,whisper,whipsaw'},
+  'whole':{m:'全部',e:'whole,wholesale,wholesome'},
+  'whose':{m:'谁的',e:'whose,whoever,shower'},
+  'wide':{m:'宽',e:'wide,widen,widely,widespread'},
+  'wife':{m:'妻子',e:'wife,midwife,housewife'},
+  'wild':{m:'野生的',e:'wild,wilderness,wildlife'},
+  'win':{m:'赢',e:'win,winner,wind,winding'},
+  'wind':{m:'风',e:'wind,window,winder,rewind'},
+  'wing':{m:'翅膀',e:'wing,sting,bring,string'},
+  'winter':{m:'冬天',e:'winter,wintery,wintersweet'},
+  'wipe':{m:'擦',e:'wipe,swipe,pipe,tripe'},
+  'wire':{m:'电线',e:'wire,wired,wiring,wiretap'},
+  'wise':{m:'聪明',e:'wise,wisdom,otherwise,likewise'},
+  'wish':{m:'希望',e:'wish,biography,wishful'},
+  'wit':{m:'智慧',e:'wit,witness,witty,witch'},
+  'with':{m:'与',e:'with,withdraw,within,without'},
+  'within':{m:'在...内部',e:'within'},
+  'without':{m:'没有',e:'without'},
+  'witness':{m:'证人',e:'witness'},
+  'wizard':{m:'巫师',e:'wizard'},
+  'woke':{m:'醒',e:'woke,awake,awaken,waken'},
+  'wolf':{m:'狼',e:'wolf,wolves,woolly'},
+  'woman':{m:'女人',e:'woman,women,womanhood'},
+  'wonder':{m:'想知道',e:'wonder,wonderful,ponder'},
+  'wood':{m:'木头',e:'wood,woods,wooden,woodwork'},
+  'wool':{m:'羊毛',e:'wool,woolen,woolly'},
+  'word':{m:'单词',e:'word,password,keyword'},
+  'work':{m:'工作',e:'work,homework,homework,network'},
+  'world':{m:'世界',e:'world,worldwide'},
+  'worm':{m:'虫子',e:'worm,earthworm},
+  'worn':{m:'磨损的',e:'worn,warning,warning'},
+  'worried':{m:'担心的',e:'worried,worry,worrying'},
+  'worse':{m:'更糟',e:'worse,worst,worsen'},
+  'worship':{m:'崇拜',e:'worship'},
+  'worst':{m:'最糟的',e:'worst'},
+  'worth':{m:'价值',e:'worth,worthy,worthwhile'},
+  'worthy':{m:'值得的',e:'worthy'},
+  'would':{m:'将会',e:'would,should,wouldn'},
+  'wound':{m:'伤口',e:'wound,wounded'},
+  'wrap':{m:'包裹',e:'wrap,wrapper,wrapping'},
+  'wrath':{m:'愤怒',e:'wrath,wreak,wreath'},
+  'wreck':{m:'破坏',e:'wreck, wreckage'},
+  'wrestle':{m:'摔跤',e:'wrestle,wrestling'},
+  'wring':{m:'拧',e:'wring,wrinkle,wrist'},
+  'wrist':{m:'手腕',e:'wrist,wrinkle'},
+  'write':{m:'写',e:'write,writer,writing,written'},
+  'wrong':{m:'错误的',e:'wrong,write,wrath'},
+  'yard':{m:'院子',e:'yard,yardstick'},
+  'year':{m:'年',e:'year,yearly,yearn'},
+  'yell':{m:'喊叫',e:'yell,yellow'},
+  'yesterday':{m:'昨天',e:'yesterday'},
+  'yield':{m:'产生',e:'yield,field,yielding'},
+  'young':{m:'年轻的',e:'young,younger,youngest'},
+  'your':{m:'你的',e:'your,yours,yourself'},
+  'youth':{m:'青年',e:'youth,youthful'},
+  'zero':{m:'零',e:'zero,zest,zone'},
+  'zone':{m:'区域',e:'zone,ozone,freeze'}
+};
+
+const PREFIXES = [
+  { p:'anti',m:'反' },{ p:'auto',m:'自动' },{ p:'bene',m:'好' },
+  { p:'fore',m:'前面' },{ p:'over',m:'过度' },{ p:'semi',m:'半' },
+  { p:'trans',m:'跨越' },{ p:'ultra',m:'超' },{ p:'under',m:'不足' },
+  { p:'vice',m:'副' },{ p:'dis',m:'否定' },{ p:'mis',m:'错误' },
+  { p:'non',m:'不' },{ p:'out',m:'超过' },{ p:'pre',m:'之前' },
+  { p:'pro',m:'向前' },{ p:'sub',m:'下面' },{ p:'sur',m:'超过' },
+  { p:'ab',m:'离开' },{ p:'ad',m:'向' },{ p:'de',m:'向下' },
+  { p:'en',m:'使' },{ p:'ex',m:'向外' },{ p:'in',m:'向内' },
+  { p:'re',m:'再' },{ p:'un',m:'不' },{ p:'up',m:'向上' }
+];
+
+const SUFFIXES = [
+  { s:'able',m:'可...的' },{ s:'ible',m:'可...的' },{ s:'tion',m:'名词' },
+  { s:'sion',m:'名词' },{ s:'ment',m:'名词' },{ s:'ness',m:'名词' },
+  { s:'less',m:'无...的' },{ s:'ful',m:'充满' },{ s:'ing',m:'正在' },
+  { s:'ish',m:'像...的' },{ s:'ist',m:'...主义者' },{ s:'ity',m:'名词' },
+  { s:'ive',m:'...的' },{ s:'ous',m:'...的' },{ s:'ly',m:'副词' },
+  { s:'er',m:'...的人' },{ s:'or',m:'...的人' },{ s:'ed',m:'过去式' },
+  { s:'al',m:'...的' },{ s:'ic',m:'...的' },{ s:'ty',m:'名词' }
+];
+
+function morphologyAnalyze(word) {
+  const w = word.toLowerCase();
+  let prefix='', root='', suffix='';
+  let pm='', rm='', sm='';
+  for (const x of PREFIXES) {
+    if (w.startsWith(x.p) && w.length > x.p.length) { prefix=x.p; pm=x.m; break; }
+  }
+  for (const x of SUFFIXES) {
+    if (w.endsWith(x.s) && w.length > x.s.length) { suffix=x.s; sm=x.m; break; }
+  }
+  let mid = w;
+  if (prefix) mid = mid.slice(prefix.length);
+  if (suffix) mid = mid.slice(0, -suffix.length);
+  if (mid && mid.length >= 3 && ROOTS[mid]) { root=mid; rm=ROOTS[mid].m; }
+  else if (mid && mid.length >= 3) root = mid;
+  const parts = [];
+  if (prefix) parts.push(`${prefix}=${pm}`);
+  if (root) parts.push(`${root}=${rm}`);
+  if (suffix) parts.push(`${suffix}=${sm}`);
+  return { prefix, root, suffix, explanation: parts.join(' | ') };
+}
+
+// ================================================================
+// MODULE 4: dictionary-api.js（Free Dictionary API）
+// ================================================================
+const DICT_CACHE = new Map();
+
+async function lookupWord(word) {
+  if (DICT_CACHE.has(word)) return DICT_CACHE.get(word);
+  try {
+    const resp = await fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(word)}`);
+    if (!resp.ok) { DICT_CACHE.set(word, null); return null; }
+    const data = await resp.json();
+    if (!data || !data[0]) { DICT_CACHE.set(word, null); return null; }
+    const entry = data[0];
+    const meaning = entry.meanings && entry.meanings[0]
+      ? entry.meanings[0].definitions[0].definition
+      : '';
+    const phonetic = entry.phonetic || (entry.phonetics && entry.phonetics[0] ? entry.phonetics[0].text : '');
+    const example = entry.meanings && entry.meanings[0]
+      ? entry.meanings[0].definitions[0].example || ''
+      : '';
+    const result = { meaning, phonetic, example };
+    DICT_CACHE.set(word, result);
+    return result;
+  } catch { DICT_CACHE.set(word, null); return null; }
+}
+
+async function lookupBatch(words, onProgress) {
+  const results = {};
+  for (let i = 0; i < words.length; i++) {
+    const w = words[i].toLowerCase();
+    results[w] = await lookupWord(w);
+    if (onProgress) onProgress(i + 1, words.length);
+    if (Math.random() > 0.6) await sleep(100);
+  }
+  return results;
+}
+
+// ================================================================
+// MODULE 5: sentence-gen.js
+// ================================================================
+const TEMPLATES = [
+  (w,m) => `I learn the word "${w}" every day.`,
+  (w,m) => `The word "${w}" means ${m || '...'}.`,
+  (w,m) => `Can you use "${w}" in a sentence?`,
+  (w,m) => `Do you know what "${w}" means?`,
+  (w,m) => `"${w}" is a useful word.`,
+  (w,m) => `I saw the word "${w}" in a book.`,
+  (w,m) => `What does "${w}" mean?`,
+  (w,m) => `"${w}" is important. Remember it!`,
+  (w,m) => `My teacher explained "${w}" to us.`,
+  (w,m) => `I wrote "${w}" in my notebook.`,
+];
+const SENTENCE_CACHE = new Map();
+
+function generateSentence(word, meaning='', existingExample='') {
+  if (existingExample?.trim()) return existingExample.trim();
+  if (SENTENCE_CACHE.has(word.toLowerCase())) return SENTENCE_CACHE.get(word.toLowerCase());
+  const s = TEMPLATES[Math.floor(Math.random() * TEMPLATES.length)](word, meaning);
+  SENTENCE_CACHE.set(word.toLowerCase(), s);
+  return s;
+}
+
+// ================================================================
+// MODULE 6: spaced-rep.js
+// ================================================================
+const BOX_LABELS = ['','🔴圆石','🟡泥土','🟢橡木','🔵铁块','🟣绿宝石'];
+const BOX_COLORS  = ['','#ef4444','#f59e0b','#22c55e','#3b82f6','#a855f7'];
+const RATING = { CORRECT:'correct', ALMOST:'almost', WRONG:'wrong' };
+
+function computeNextReview(word, rating) {
+  const today = new Date().toISOString().split('T')[0];
+  let interval = word.interval || 1;
+  let ef = word.ef || 2.5;
+  let box = word.box || 1;
+  if (rating === RATING.CORRECT) {
+    interval = Math.min(30, Math.round(interval * ef));
+    ef = Math.min(3.0, parseFloat((ef + 0.1).toFixed(2)));
+    box = Math.min(5, box + 1);
+  } else if (rating === RATING.ALMOST) {
+    ef = Math.max(1.3, parseFloat((ef - 0.1).toFixed(2)));
+  } else {
+    interval = 1; ef = Math.max(1.3, parseFloat((ef - 0.2).toFixed(2))); box = 1;
+  }
+  const nextReview = rating === RATING.ALMOST ? today
+    : new Date(Date.now() + interval * 86400000).toISOString().split('T')[0];
+  return {
+    interval, ef, box, nextReview, lastReview: today,
+    timesReviewed: (word.timesReviewed||0)+1,
+    timesCorrect: rating===RATING.CORRECT ? (word.timesCorrect||0)+1 : (word.timesCorrect||0)
+  };
+}
+
+function getDueWords() {
+  const today = new Date().toISOString().split('T')[0];
+  return store.getAll().filter(w => w.nextReview && w.nextReview <= today)
+    .sort((a,b) => { if (a.box!==b.box) return a.box-b.box; return a.nextReview.localeCompare(b.nextReview); });
+}
+
+// ================================================================
+// MODULE 7: island.js
+// ================================================================
+const MILESTONES = [
+  { t:10,  l:'草地', e:'🌿', c:'#22c55e', d:'开垦了一块草地！' },
+  { t:25,  l:'树木', e:'🌳', c:'#16a34a', d:'种下了第一批树木！' },
+  { t:50,  l:'房屋', e:'🏠', c:'#eab308', d:'建起了第一座房屋！' },
+  { t:100, l:'城堡', e:'🏰', c:'#a855f7', d:'拥有了壮观的词汇城堡！' },
+];
+
+function getIslandLevel(n) { if(n>=100)return 4; if(n>=50)return 3; if(n>=25)return 2; if(n>=10)return 1; return 0; }
+function getNextMilestone(n) { return MILESTONES.find(m=>n<m.t)||null; }
+function getUnlockedMilestones(n) { return MILESTONES.filter(m=>n>=m.t); }
+function getIslandEmojis(n) { return['🌊','🌿🌊','🌿🌳🌊','🌿🏠🌳🌊','🏰🌿🏠🌳🌊'][getIslandLevel(n)]||'🌊'; }
+function getIslandName(n) { return['新建小岛','词汇小岛','词汇庄园','词源城堡','词汇王国'][getIslandLevel(n)]; }
+
+// ================================================================
+// TTS
+// ================================================================
+function speak(word) {
+  try { window.speechSynthesis.cancel(); const u=new SpeechSynthesisUtterance(word); u.lang='en-US'; window.speechSynthesis.speak(u); } catch {}
+}
+
+// ================================================================
+// Utility
+// ================================================================
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+// ================================================================
+// App State
+// ================================================================
+let currentView = 'home';
+
+// ================================================================
+// Routing
+// ================================================================
+function navigate(view) { currentView = view; render(); }
+
+// ================================================================
+// Render
+// ================================================================
 function render() {
   const app = document.getElementById('app');
   app.innerHTML = '';
-
-  switch (currentView) {
-    case 'home':      app.appendChild(renderHome());      break;
-    case 'import':    app.appendChild(renderImport());    break;
-    case 'study':     app.appendChild(renderStudy());     break;
-    case 'island':    app.appendChild(renderIsland());    break;
-    case 'stats':     app.appendChild(renderStats());     break;
-    case 'wordbank':  app.appendChild(renderWordBank());  break;
-    default:          app.appendChild(renderHome());      break;
-  }
-
+  const views = { home:renderHome, import:renderImport, study:renderStudy, island:renderIsland, stats:renderStats, wordbank:renderWordBank };
+  (views[currentView] || renderHome)(app);
   app.appendChild(renderNav());
 }
 
-// ===== Views =====
-
-function renderHome() {
-  const stats = store.getStats();
-  const container = document.createElement('div');
-  container.className = 'animate-fade-in';
-  container.innerHTML = `
-    <div style="text-align:center; margin-bottom:var(--space-lg);">
-      <h1>🏝️ LearningIsFun</h1>
-      <p class="text-muted mt-sm">每天10分钟，轻松背单词</p>
-    </div>
-
-    <!-- 统计卡片 -->
-    <div class="card mb-md">
-      <div class="flex justify-between items-center mb-sm">
-        <span>📚 我的词库</span>
-        <strong>${stats.total} 词</strong>
-      </div>
-      <div class="flex gap-md text-center" style="font-size:0.8rem; color:var(--color-text-muted);">
-        <div><strong style="color:var(--color-success)">${stats.mastered}</strong><br>已掌握</div>
-        <div><strong style="color:var(--color-warning)">${stats.learning}</strong><br>学习中</div>
-        <div><strong style="color:var(--color-accent)">${stats.newWords}</strong><br>新词</div>
-      </div>
-    </div>
-
-    <!-- 今日任务 -->
-    <div class="card mb-md" style="border-left: 4px solid var(--color-accent);">
-      <div class="flex justify-between items-center">
-        <div>
-          <div style="font-size:1.5rem; font-weight:700;">${stats.dueToday}</div>
-          <p class="text-muted" style="margin:0">今日待复习</p>
-        </div>
-        <div style="text-align:right;">
-          <div style="font-size:1.5rem; font-weight:700; color:var(--color-accent);">${stats.avgCorrect}%</div>
-          <p class="text-muted" style="margin:0">正确率</p>
-        </div>
-      </div>
-    </div>
-
-    <!-- 主按钮 -->
-    <button class="btn btn-primary btn-lg mb-md" onclick="window.__lif.navigate('study')"
-      ${stats.total === 0 ? 'disabled' : ''}>
-      ${stats.total === 0 ? '📚 先导入词库' : '🚀 开始刷词'}
-    </button>
-
-    ${stats.total === 0 ? `
-    <div class="card text-center" style="border:2px dashed var(--color-primary); background:transparent;">
-      <p>👆 点击上方按钮，上传英语课本 PDF 开始</p>
-    </div>
-    ` : ''}
-  `;
-  return container;
-}
-
-function renderImport() {
-  const container = document.createElement('div');
-  container.className = 'animate-fade-in';
-
-  let extractedWords = [];
-  let lookupProgress = { done: 0, total: 0 };
-
-  container.innerHTML = `
-    <div class="flex items-center gap-sm mb-md">
-      <button class="btn btn-sm btn-secondary" onclick="window.__lif.navigate('home')">← 返回</button>
-      <h2>📄 导入 PDF</h2>
-    </div>
-
-    <div class="card mb-md">
-      <p class="mb-md">上传英语课本 PDF，系统自动提取所有英文生词。</p>
-      <input type="file" id="pdfInput" accept=".pdf" class="mb-md" />
-      <button id="extractBtn" class="btn btn-primary" disabled>🔍 提取单词</button>
-    </div>
-
-    <div id="previewArea" style="display:none;">
-      <div class="card mb-md">
-        <div class="flex justify-between items-center mb-sm">
-          <h3>📋 预览</h3>
-          <span id="wordCount" class="text-muted"></span>
-        </div>
-        <div id="wordList" style="max-height:200px; overflow-y:auto; font-size:0.8rem; color:var(--color-text-muted);"></div>
-      </div>
-
-      <div id="lookupProgress" class="card mb-md" style="display:none;">
-        <p class="mb-sm">🔄 查词典进度：<span id="lookupStatus">0/0</span></p>
-        <div class="progress-bar"><div id="lookupBar" class="progress-bar-fill" style="width:0%"></div></div>
-      </div>
-
-      <div id="importArea" style="display:none;">
-        <div id="meaningPreview" class="card mb-md" style="max-height:300px; overflow-y:auto;"></div>
-        <button id="importBtn" class="btn btn-success btn-lg">✅ 确认导入词库</button>
-      </div>
-    </div>
-
-    <div id="successArea" class="card text-center" style="display:none; border:2px solid var(--color-success);">
-      <div style="font-size:3rem;">🎉</div>
-      <h3 class="mt-sm">导入成功！</h3>
-      <p id="importResult" class="text-muted mt-sm"></p>
-      <button class="btn btn-primary mt-md" onclick="window.__lif.navigate('home')">
-        返回首页开始刷词 →
-      </button>
-    </div>
-  `;
-
-  // Attach event handlers
-  const pdfInput = container.querySelector('#pdfInput');
-  const extractBtn = container.querySelector('#extractBtn');
-  const previewArea = container.querySelector('#previewArea');
-  const wordList = container.querySelector('#wordList');
-  const wordCount = container.querySelector('#wordCount');
-  const lookupProgress = container.querySelector('#lookupProgress');
-  const lookupStatus = container.querySelector('#lookupStatus');
-  const lookupBar = container.querySelector('#lookupBar');
-  const importArea = container.querySelector('#importArea');
-  const meaningPreview = container.querySelector('#meaningPreview');
-  const importBtn = container.querySelector('#importBtn');
-  const successArea = container.querySelector('#successArea');
-  const importResult = container.querySelector('#importResult');
-
-  // File selected
-  pdfInput.addEventListener('change', () => {
-    extractBtn.disabled = !pdfInput.files[0];
-  });
-
-  // Extract words
-  extractBtn.addEventListener('click', async () => {
-    extractBtn.disabled = true;
-    extractBtn.textContent = '⏳ 提取中...';
-
-    try {
-      const result = await pdfExtractor.extractFromPDF(pdfInput.files[0]);
-      extractedWords = result.words;
-
-      previewArea.style.display = 'block';
-      wordCount.textContent = `共 ${extractedWords.length} 个候选词`;
-      wordList.innerHTML = extractedWords
-        .slice(0, 30)
-        .map(w => `<span style="display:inline-block; padding:2px 6px; background:var(--color-bg); border-radius:4px; margin:2px;">${w}</span>`)
-        .join('');
-      if (extractedWords.length > 30) {
-        wordList.innerHTML += `<br><span class="text-muted">... 还有 ${extractedWords.length - 30} 个词</span>`;
-      }
-
-      // Start: lookup meanings + morphology + sentences
-      lookupProgress.style.display = 'block';
-      importArea.style.display = 'none';
-
-      // Batch lookup with progress
-      const lookupResults = await dictionaryAPI.lookupBatch(extractedWords, (done, total) => {
-        lookupStatus.textContent = `${done}/${total}`;
-        lookupBar.style.width = `${(done / total) * 100}%`;
-      });
-
-      // Build full import data
-      const importData = extractedWords.map(word => {
-        const dictResult = lookupResults[word] || {};
-        const morph = morphology.analyze(word);
-        const sentence = sentenceGen.generate(word, dictResult.meaning || '', dictResult.example || '');
-
-        return {
-          word,
-          meaning: dictResult.meaning || '',
-          phonetic: dictResult.phonetic || '',
-          example: sentence,
-          prefix: morph.prefix || '',
-          root: morph.root || '',
-          suffix: morph.suffix || '',
-        };
-      });
-
-      lookupProgress.style.display = 'none';
-      importArea.style.display = 'block';
-
-      // Preview import data
-      meaningPreview.innerHTML = '<h3 class="mb-sm">📖 待导入词库预览（前20个）</h3>' +
-        importData.slice(0, 20).map(w => `
-          <div class="flex justify-between items-center" style="padding:4px 0; border-bottom:1px solid var(--color-bg);">
-            <div>
-              <strong>${w.word}</strong>
-              ${w.prefix || w.root ? `<span style="font-size:0.7rem; color:var(--color-accent); margin-left:4px;">${[w.prefix, w.root, w.suffix].filter(Boolean).join('+')}</span>` : ''}
-            </div>
-            <div>
-              <span class="text-muted" style="font-size:0.75rem;">${w.meaning || '❓'}</span>
-            </div>
-          </div>
-        `).join('');
-
-      // Import
-      importBtn.onclick = () => {
-        const count = store.importWords(importData, pdfInput.files[0].name);
-        importResult.textContent = `成功导入 ${count} 个单词`;
-        previewArea.style.display = 'none';
-        successArea.style.display = 'block';
-      };
-
-    } catch (e) {
-      extractBtn.textContent = '🔍 提取单词';
-      extractBtn.disabled = false;
-      wordList.innerHTML = `<p style="color:var(--color-danger)">提取失败：${e.message}</p>`;
-    }
-  });
-
-  return container;
-}
-
-function renderStudy() {
-  const container = document.createElement('div');
-  container.className = 'animate-fade-in';
-
-  const dueWords = store.getDueWords();
-  const newWords = store.getNewWords(5);
-
-  if (dueWords.length === 0 && newWords.length === 0) {
-    container.innerHTML = `
-      <div class="card text-center" style="margin-top:var(--space-xl);">
-        <div style="font-size:3rem;">🎉</div>
-        <h2 class="mt-sm">今日任务完成！</h2>
-        <p class="text-muted mt-sm">明天同一时间再来吧～</p>
-        <button class="btn btn-primary mt-md" onclick="window.__lif.navigate('home')">返回首页</button>
-      </div>
-    `;
-    return container;
+function el(tag, attrs={}, children=[]) {
+  const e = document.createElement(tag);
+  for (const [k,v] of Object.entries(attrs)) {
+    if (k === 'className') e.className = v;
+    else if (k === 'style' && typeof v === 'object') Object.assign(e.style, v);
+    else if (k.startsWith('on')) e.addEventListener(k.slice(2).toLowerCase(), v);
+    else e.setAttribute(k, v);
   }
-
-  container.innerHTML = `
-    <div class="flex items-center gap-sm mb-md">
-      <button class="btn btn-sm btn-secondary" onclick="window.__lif.navigate('home')">← 返回</button>
-      <h2>🚀 刷词</h2>
-    </div>
-
-    <div class="card mb-md">
-      <p>📝 <strong>${dueWords.length}</strong> 个待复习 &nbsp;|&nbsp; 🆕 <strong>${newWords.length}</strong> 个新词</p>
-    </div>
-
-    <button class="btn btn-primary btn-lg mb-md" onclick="window.__lif.startReview()"
-      ${dueWords.length === 0 ? 'disabled' : ''}>
-      📝 先复习（${dueWords.length}个）
-    </button>
-
-    <button class="btn btn-secondary btn-lg mb-md" onclick="window.__lif.startLearning()"
-      ${newWords.length === 0 ? 'disabled' : ''}>
-      🆕 学习新词（${newWords.length}个）
-    </button>
-
-    ${dueWords.length === 0 ? '<p class="text-center text-muted mt-md">今日复习完成，可以学习新词！</p>' : ''}
-  `;
-
-  return container;
+  for (const c of children) {
+    if (typeof c === 'string') e.appendChild(document.createTextNode(c));
+    else if (c instanceof Node) e.appendChild(c);
+  }
+  return e;
 }
 
-function renderIsland() {
-  const container = document.createElement('div');
-  container.className = 'animate-fade-in';
-  const stats = store.getStats();
-  const boxDist = store.getBoxDistribution();
-
-  // Island level based on word count
-  let level = 1;
-  if (stats.total >= 100) level = 4;
-  else if (stats.total >= 50) level = 3;
-  else if (stats.total >= 25) level = 2;
-  else if (stats.total >= 10) level = 1;
-
-  const milestones = [
-    { count: 10, label: '草地', emoji: '🌿', done: stats.total >= 10 },
-    { count: 25, label: '树木', emoji: '🌳', done: stats.total >= 25 },
-    { count: 50, label: '房屋', emoji: '🏠', done: stats.total >= 50 },
-    { count: 100, label: '城堡', emoji: '🏰', done: stats.total >= 100 },
-  ];
-
-  const boxLabels = ['圆石', '泥土', '橡木', '铁块', '绿宝石'];
-  const boxEmojis = ['🔴', '🟡', '🟢', '🔵', '🟣'];
-
-  container.innerHTML = `
-    <div class="flex items-center gap-sm mb-md">
-      <button class="btn btn-sm btn-secondary" onclick="window.__lif.navigate('home')">← 返回</button>
-      <h2>🏝️ 我的词源岛</h2>
-    </div>
-
-    <!-- 岛屿展示 -->
-    <div class="card text-center mb-md" style="background: linear-gradient(180deg, #1a4a6e 0%, #16213e 100%); padding:var(--space-xl);">
-      <div style="font-size:4rem; margin-bottom:var(--space-sm);">${stats.total >= 10 ? '🏝️' : '🌊'}</div>
-      <h2 style="color:#4ade80;">Lv.${level} 词源岛</h2>
-      <p class="text-muted">已收集 ${stats.total} 个词汇建材</p>
-    </div>
-
-    <!-- 里程碑 -->
-    <div class="card mb-md">
-      <h3 class="mb-sm">🏆 里程碑</h3>
-      ${milestones.map(m => `
-        <div class="flex items-center gap-sm mb-sm" style="opacity:${m.done ? 1 : 0.4};">
-          <span>${m.emoji}</span>
-          <span>${m.label}</span>
-          <span class="text-muted">(${m.count}词)</span>
-          ${m.done ? '<span style="color:var(--color-success); margin-left:auto;">✅</span>' : `<span style="margin-left:auto; color:var(--color-text-muted);">${stats.total}/${m.count}</span>`}
-        </div>
-      `).join('')}
-    </div>
-
-    <!-- 盒子分布 -->
-    <div class="card">
-      <h3 class="mb-sm">📦 Leitner 盒子</h3>
-      ${boxDist.map((count, i) => `
-        <div class="flex items-center gap-sm mb-sm">
-          <span>${boxEmojis[i]} ${boxLabels[i]}</span>
-          <div class="progress-bar" style="flex:1; margin:0 var(--space-sm);">
-            <div class="progress-bar-fill" style="width:${stats.total > 0 ? (count/stats.total*100) : 0}%; background:var(--color-accent);"></div>
-          </div>
-          <span class="text-muted" style="font-size:0.8rem; min-width:30px;">${count}</span>
-        </div>
-      `).join('')}
-    </div>
-  `;
-
-  return container;
-}
-
-function renderStats() {
-  const container = document.createElement('div');
-  container.className = 'animate-fade-in';
-  const stats = store.getStats();
-  const boxDist = store.getBoxDistribution();
-  const boxLabels = ['圆石 🔴', '泥土 🟡', '橡木 🟢', '铁块 🔵', '绿宝石 🟣'];
-
-  container.innerHTML = `
-    <div class="flex items-center gap-sm mb-md">
-      <button class="btn btn-sm btn-secondary" onclick="window.__lif.navigate('home')">← 返回</button>
-      <h2>📊 学习统计</h2>
-    </div>
-
-    <div class="card mb-md text-center">
-      <div style="font-size:3rem; font-weight:700; color:var(--color-accent);">${stats.total}</div>
-      <p class="text-muted">已学单词总数</p>
-    </div>
-
-    <div class="flex gap-md mb-md">
-      <div class="card text-center" style="flex:1;">
-        <div style="font-size:2rem; color:var(--color-success);">${stats.mastered}</div>
-        <p class="text-muted" style="font-size:0.8rem;">已掌握</p>
-      </div>
-      <div class="card text-center" style="flex:1;">
-        <div style="font-size:2rem; color:var(--color-warning);">${stats.learning}</div>
-        <p class="text-muted" style="font-size:0.8rem;">学习中</p>
-      </div>
-      <div class="card text-center" style="flex:1;">
-        <div style="font-size:2rem; color:var(--color-accent);">${stats.avgCorrect}%</div>
-        <p class="text-muted" style="font-size:0.8rem;">正确率</p>
-      </div>
-    </div>
-
-    <div class="card">
-      <h3 class="mb-sm">📦 盒子分布</h3>
-      ${boxDist.map((count, i) => `
-        <div class="flex justify-between items-center mb-sm">
-          <span>${boxLabels[i]}</span>
-          <span><strong>${count}</strong> 词</span>
-        </div>
-      `).join('')}
-    </div>
-
-    <button class="btn btn-secondary mt-md" onclick="window.__lif.exportBackup()">
-      💾 导出词库备份
-    </button>
-  `;
-
-  return container;
-}
-
-function renderWordBank() {
-  const container = document.createElement('div');
-  container.className = 'animate-fade-in';
-  const words = store.getAll();
-  const boxLabels = ['', '🔴', '🟡', '🟢', '🔵', '🟣'];
-  const boxColors = ['', 'var(--box-1)', 'var(--box-2)', 'var(--box-3)', 'var(--box-4)', 'var(--box-5)'];
-
-  container.innerHTML = `
-    <div class="flex items-center gap-sm mb-md">
-      <button class="btn btn-sm btn-secondary" onclick="window.__lif.navigate('home')">← 返回</button>
-      <h2>📚 词库管理</h2>
-    </div>
-
-    <button class="btn btn-primary mb-md" onclick="window.__lif.navigate('import')">
-      📄 导入新 PDF
-    </button>
-
-    <div class="card">
-      <h3 class="mb-sm">已导入 ${words.length} 个单词</h3>
-      ${words.length === 0 ? '<p class="text-muted">还没有单词，去导入 PDF 吧！</p>' : ''}
-      <div style="max-height:400px; overflow-y:auto;">
-        ${words.map(w => `
-          <div class="flex justify-between items-center"
-            style="padding:6px 0; border-bottom:1px solid var(--color-bg);">
-            <div>
-              <strong>${w.word}</strong>
-              ${w.meaning ? `<span class="text-muted" style="margin-left:8px;">${w.meaning}</span>` : ''}
-            </div>
-            <div class="flex items-center gap-sm">
-              <span class="box-badge" data-box="${w.box}">${boxLabels[w.box]}</span>
-              <button class="btn btn-sm btn-danger"
-                onclick="window.__lif.deleteWord('${w.word}')"
-                style="padding:2px 6px; width:auto; font-size:0.7rem;">删除</button>
-            </div>
-          </div>
-        `).join('')}
-      </div>
-    </div>
-  `;
-
-  return container;
-}
-
-// ===== Nav =====
 function renderNav() {
-  const nav = document.createElement('nav');
-  nav.className = 'nav-bottom';
-  const views = [
-    { id: 'home',     icon: '🏠', label: '首页' },
-    { id: 'study',    icon: '📝', label: '刷词' },
-    { id: 'island',   icon: '🏝️', label: '我的岛' },
-    { id: 'wordbank', icon: '📚', label: '词库' },
-    { id: 'stats',    icon: '📊', label: '统计' },
+  const stats = store.getStats();
+  const nav = el('nav', {className:'bottom-nav'}, []);
+  const items = [
+    { view:'home', icon:'🏠', label:'首页' },
+    { view:'import', icon:'📥', label:'导入' },
+    { view:'study', icon:'🧠', label:'学习', badge:stats.dueToday||null },
+    { view:'island', icon:'🏝️', label:'岛屿' },
+    { view:'wordbank', icon:'📚', label:'词库' },
+    { view:'stats', icon:'📊', label:'统计' },
   ];
-  nav.innerHTML = views.map(v => `
-    <a href="#" class="${currentView === v.id ? 'active' : ''}"
-       onclick="window.__lif.navigate('${v.id}'); return false;">
-      <span class="nav-icon">${v.icon}</span>
-      <span>${v.label}</span>
-    </a>
-  `).join('');
+  for (const item of items) {
+    const btn = el('button', {className:`nav-btn${currentView===item.view?' active':''}`, onClick:()=>navigate(item.view)}, [
+      el('span', {className:'nav-icon'}, [document.createTextNode(item.icon)]),
+      el('span', {className:'nav-label'}, [document.createTextNode(item.label)]),
+      ...(item.badge ? [el('span', {className:'nav-badge'}, [document.createTextNode(item.badge)])] : [])
+    ]);
+    nav.appendChild(btn);
+  }
   return nav;
 }
 
-// ===== Utilities =====
-function sleep(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
+function renderHome() {
+  const stats = store.getStats();
+  const due = getDueWords();
+  const stats2 = store.getStats();
+
+  const wrap = el('div', {className:'view-home animate-fade-in'}, []);
+
+  wrap.appendChild(el('div', {style:'text-align:center;margin-bottom:var(--space-lg)'}, [
+    el('h1', {}, [document.createTextNode('🏝️ LearningIsFun')]),
+    el('p', {className:'text-muted',style:'margin-top:var(--space-xs)'}, [document.createTextNode('每天10分钟，轻松背单词')])
+  ]));
+
+  wrap.appendChild(el('div', {className:'card mb-md'}, [
+    el('div', {className:'flex justify-between items-center mb-sm'}, [
+      el('span', {}, [document.createTextNode('📚 我的词库')]),
+      el('strong', {}, [document.createTextNode(`${stats.total} 词`)])
+    ]),
+    el('div', {className:'flex gap-md text-center',style:'font-size:0.8rem;color:var(--color-text-muted)'}, [
+      el('div', {}, [el('strong',{style:'color:var(--color-success)'},[document.createTextNode(stats.mastered)]), el('br'), document.createTextNode('已掌握')]),
+      el('div', {}, [el('strong',{style:'color:var(--color-warning)'},[document.createTextNode(stats.learning)]), el('br'), document.createTextNode('学习中')]),
+      el('div', {}, [el('strong',{style:'color:var(--color-accent)'},[document.createTextNode(stats.newWords)]), el('br'), document.createTextNode('新词')]),
+    ])
+  ]));
+
+  const dueCard = el('div', {className:'card mb-md',style:'border-left:4px solid var(--color-accent)'}, [
+    el('div', {className:'flex justify-between items-center'}, [
+      el('div', {}, [
+        el('div', {style:'font-size:1.5rem;font-weight:700'}, [document.createTextNode(due.length)]),
+        el('p', {className:'text-muted',style:'margin:0'}, [document.createTextNode('今日待复习')])
+      ]),
+      el('div', {style:'text-align:right'}, [
+        el('div', {style:'font-size:1.5rem;font-weight:700;color:var(--color-accent)'}, [document.createTextNode(`${stats.avgCorrect}%`)]),
+        el('p', {className:'text-muted',style:'margin:0'}, [document.createTextNode('正确率')])
+      ])
+    ])
+  ]);
+  wrap.appendChild(dueCard);
+
+  const studyBtn = el('button', {
+    className:'btn btn-primary btn-lg mb-md',
+    style:'width:100%',
+    onClick:()=>navigate('study'),
+    disabled: stats.total === 0
+  }, [document.createTextNode('🧠 开始学习')]);
+  wrap.appendChild(studyBtn);
+
+  if (stats.total === 0) {
+    wrap.appendChild(el('p', {className:'text-muted text-center',style:'margin:var(--space-md 0'}, [
+      document.createTextNode('还没有单词，'), el('a',{href:'#',onClick:(e)=>{e.preventDefault();navigate('import');}},[document.createTextNode('去导入一本PDF')]), document.createTextNode(' 开始吧！')
+    ]));
+  }
+
+  // 岛屿预览
+  const level = getIslandLevel(stats.total);
+  if (level > 0) {
+    wrap.appendChild(el('div', {className:'card mb-md',style:'text-align:center;padding:var(--space-md)'}, [
+      el('div', {style:'font-size:2rem'}, [document.createTextNode(getIslandEmojis(stats.total))]),
+      el('div', {style:'font-weight:700;color:var(--color-success);margin-top:var(--space-xs)'}, [document.createTextNode(`Lv.${level} ${getIslandName(stats.total)}`)]),
+      el('div', {className:'text-muted',style:'font-size:0.8rem'}, [document.createTextNode(`${stats.total} 个词汇建材`)]),
+      el('button', {className:'btn btn-sm mt-sm',onClick:()=>navigate('island')}, [document.createTextNode('🏝️ 查看岛屿')])
+    ]));
+  }
+
+  return wrap;
 }
 
-// ===== Study Flow (basic - full flow in Task 7) =====
-window.__lif = {
-  navigate,
-  startReview() { showReviewSession(); },
-  startLearning() { showLearningSession(); },
-  deleteWord(word) { store.deleteWord(word); render(); },
-  exportBackup() {
-    const json = store.exportJSON();
-    const blob = new Blob([json], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `learningisfun-backup-${new Date().toISOString().split('T')[0]}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-  }
-};
+// ===== Import View =====
+function renderImport() {
+  const wrap = el('div', {className:'view-import animate-fade-in'}, []);
+  wrap.appendChild(el('h2', {className:'mb-md'}, [document.createTextNode('📥 导入单词')]));
 
-// ===== Study Sessions =====
-async function showReviewSession() {
-  const dueWords = store.getDueWords();
-  if (dueWords.length === 0) return;
+  const card = el('div', {className:'card'}, []);
 
-  const container = document.getElementById('app');
-  container.innerHTML = '';
-  container.appendChild(renderNav());
+  const fileWrap = el('div', {className:'file-upload mb-md'}, []);
+  const fileInput = el('input', {type:'file',accept:'.pdf',id:'pdf-input',className:'hidden',onChange:()=>{
+    if(fileInput.files[0]) fileLabel.textContent = fileInput.files[0].name;
+  }});
+  const fileLabel = el('label', {for:'pdf-input',className:'file-label'}, [document.createTextNode('📄 选择 PDF 文件')]);
+  fileWrap.appendChild(fileInput);
+  fileWrap.appendChild(fileLabel);
+  card.appendChild(fileWrap);
 
-  let current = 0;
-  let correct = 0;
-  let total = dueWords.length;
+  const extractBtn = el('button', {className:'btn btn-primary',style:'width:100%'}, [document.createTextNode('🔍 提取单词')]);
+  card.appendChild(extractBtn);
 
-  async function showCard(idx) {
-    if (idx >= dueWords.length) {
-      // Done
-      container.querySelector('#study-content').innerHTML = `
-        <div class="card text-center animate-fade-in">
-          <div style="font-size:3rem;">🏆</div>
-          <h2 class="mt-sm">复习完成！</h2>
-          <p class="mt-sm">正确率：<strong style="color:var(--color-success)">${correct}/${total}</strong></p>
-          <button class="btn btn-primary mt-md" onclick="window.__lif.navigate('home')">返回首页</button>
+  const preview = el('div', {id:'import-preview',className:'mt-md',style:'display:none'}, []);
+  const previewHeader = el('div', {className:'mb-sm'}, [el('h3',{},[document.createTextNode('📋 待导入预览')])]);
+  const previewList = el('div', {id:'preview-list'}, []);
+  const previewCount = el('div', {className:'text-muted',style:'font-size:0.8rem;margin-top:var(--space-xs)'}, []);
+  preview.appendChild(previewHeader);
+  preview.appendChild(previewList);
+  preview.appendChild(previewCount);
+
+  const lookupBar = el('div', {}, []);
+  const lookupStatus = el('span', {className:'text-muted',style:'font-size:0.8rem'}, []);
+  const progressBar = el('div', {className:'progress-bar mt-sm mb-sm',style:'display:none'}, [
+    el('div', {className:'progress-bar-fill',id:'lookup-fill',style:'width:0%'}, [])
+  ]);
+  const lookupInfo = el('div', {className:'mt-sm mb-md',style:'display:none;background:var(--color-bg);padding:var(--space-sm);border-radius:8px'}, [
+    el('p', {style:'margin:0;font-size:0.85rem'}, [el('span',{className:'text-muted'},[document.createTextNode('🔍 正在查询词典和词根...')])]),
+    el('div', {}, [lookupStatus]),
+    progressBar
+  ]);
+
+  const importBtn = el('button', {className:'btn btn-success mt-md',style:'width:100%;display:none',id:'import-btn'}, [document.createTextNode('✅ 确认导入')]);
+  const importResult = el('p', {className:'mt-md text-center',style:'color:var(--color-success);font-weight:700;display:none'}, []);
+
+  extractBtn.addEventListener('click', async () => {
+    if (!fileInput.files[0]) { alert('请先选择一个 PDF 文件'); return; }
+    extractBtn.disabled = true; extractBtn.textContent = '⏳ 提取中...';
+    try {
+      const { words } = await pdfExtractor.extractFromPDF(fileInput.files[0]);
+      extractBtn.textContent = `✅ 提取到 ${words.length} 个单词`;
+      extractBtn.disabled = false;
+      preview.style.display = 'block';
+      lookupInfo.style.display = 'block';
+
+      lookupStatus.textContent = '0/' + words.length;
+
+      // 查询词典
+      const dictResults = await lookupBatch(words, (done, total) => {
+        lookupStatus.textContent = `${done}/${total}`;
+        lookupBar.style.width = `${(done/total)*100}%`;
+        document.getElementById('lookup-fill').style.width = `${(done/total)*100}%`;
+      });
+      progressBar.style.display = 'none';
+      lookupStatus.textContent = `查询完成！`;
+
+      // 构建导入数据
+      const importData = words.map(word => {
+        const dict = dictResults[word.toLowerCase()] || {};
+        const morph = morphologyAnalyze(word);
+        return {
+          word,
+          meaning: dict.meaning || '',
+          phonetic: dict.phonetic || '',
+          example: generateSentence(word, dict.meaning, dict.example),
+          prefix: morph.prefix,
+          root: morph.root,
+          suffix: morph.suffix,
+        };
+      });
+
+      previewCount.textContent = `共 ${importData.length} 个单词`;
+      previewList.innerHTML = importData.slice(0, 20).map(w => `
+        <div style="padding:4px 0;border-bottom:1px solid var(--color-bg);display:flex;justify-content:space-between;align-items:center;">
+          <strong>${w.word}</strong>
+          <div style="text-align:right;">
+            ${w.prefix||w.root?`<span style="font-size:0.7rem;color:var(--color-accent)">${[w.prefix,w.root,w.suffix].filter(Boolean).join('+')}</span>`:''}
+            <div style="font-size:0.75rem;color:var(--color-text-muted)">${w.meaning||'❓'}</div>
+          </div>
         </div>
-      `;
+      `).join('');
+      if (importData.length > 20) previewList.innerHTML += `<p class="text-muted" style="font-size:0.8rem">... 还有 ${importData.length-20} 个</p>`;
+
+      importBtn.style.display = 'block';
+      importBtn.onclick = () => {
+        const count = store.importWords(importData, fileInput.files[0].name);
+        importResult.textContent = `🎉 成功导入 ${count} 个单词！`;
+        importResult.style.display = 'block';
+        preview.style.display = 'none';
+        importBtn.style.display = 'none';
+      };
+
+    } catch(e) {
+      extractBtn.textContent = '🔍 提取单词'; extractBtn.disabled = false;
+      preview.innerHTML = `<p style="color:var(--color-danger)">提取失败：${e.message}</p>`;
+    }
+  });
+
+  card.appendChild(preview);
+  card.appendChild(lookupInfo);
+  card.appendChild(importBtn);
+  card.appendChild(importResult);
+  wrap.appendChild(card);
+
+  // 手动添加
+  const manualCard = el('div', {className:'card mt-md'}, []);
+  manualCard.appendChild(el('h3', {className:'mb-sm'}, [document.createTextNode('✏️ 手动添加单词')]));
+  const wordInput = el('input', {type:'text',id:'manual-word',className:'input',placeholder:'输入英文单词',style:'margin-bottom:var(--space-xs)'}, []);
+  const meaningInput = el('input', {type:'text',id:'manual-meaning',className:'input',placeholder:'中文释义（可选）',style:'margin-bottom:var(--space-xs)'}, []);
+  const addBtn = el('button', {className:'btn btn-secondary',style:'width:100%'}, [document.createTextNode('➕ 添加到词库')]);
+  addBtn.addEventListener('click', () => {
+    const w = wordInput.value.trim();
+    if (!w) { alert('请输入单词'); return; }
+    const morph = morphologyAnalyze(w);
+    const ex = generateSentence(w, meaningInput.value.trim());
+    store.addWord({ word:w, meaning:meaningInput.value.trim(), example:ex, prefix:morph.prefix, root:morph.root, suffix:morph.suffix });
+    wordInput.value = ''; meaningInput.value = '';
+    alert(`✅ "${w}" 已添加！`);
+  });
+  manualCard.appendChild(wordInput);
+  manualCard.appendChild(meaningInput);
+  manualCard.appendChild(addBtn);
+  wrap.appendChild(manualCard);
+
+  return wrap;
+}
+
+// ===== Study View =====
+function renderStudy() {
+  const wrap = el('div', {className:'view-study'}, []);
+  const due = getDueWords();
+
+  wrap.appendChild(el('h2', {className:'mb-md'}, [document.createTextNode('🧠 学习')]));
+  wrap.appendChild(el('p', {className:'text-muted mb-md'}, [document.createTextNode(`今日待复习：${due.length} 个`)]));
+
+  if (due.length === 0) {
+    wrap.appendChild(el('div', {className:'card',style:'text-align:center;padding:var(--space-xl)'}, [
+      el('div', {style:'font-size:3rem'}, [document.createTextNode('🎉')]),
+      el('h3', {className:'mt-sm'}, [document.createTextNode('今日任务已完成！')]),
+      el('p', {className:'text-muted'}, [document.createTextNode('明天再来复习更多单词吧～')]),
+      el('button', {className:'btn mt-md',onClick:()=>navigate('home')}, [document.createTextNode('🏠 返回首页')])
+    ]));
+    return wrap;
+  }
+
+  let queue = [...due];
+  let reviewIndex = 0;
+
+  function showCard() {
+    if (reviewIndex >= queue.length) {
+      wrap.innerHTML = '';
+      wrap.appendChild(el('h2', {className:'mb-md'}, [document.createTextNode('🎉 学习完成！')]));
+      wrap.appendChild(el('p', {className:'text-muted'}, [document.createTextNode(`今天复习了 ${queue.length} 个单词，继续加油！`)]));
+      wrap.appendChild(el('button', {className:'btn btn-primary mt-md',onClick:()=>navigate('home')}, [document.createTextNode('🏠 返回首页')]));
       return;
     }
+    const word = queue[reviewIndex];
+    wrap.innerHTML = '';
+    wrap.appendChild(el('h2', {className:'mb-sm'}, [document.createTextNode(`🧠 ${reviewIndex+1}/${queue.length}`)]));
+    wrap.appendChild(el('div', {className:'text-muted mb-md',style:'font-size:0.85rem'}, [
+      document.createTextNode(`盒子：${BOX_LABELS[word.box]||'新词'} | `),
+      document.createTextNode(`已复习：${word.timesReviewed||0}次 | `),
+      document.createTextNode(`正确率：${word.timesReviewed?Math.round((word.timesCorrect||0)/(word.timesReviewed)*100):0}%`)
+    ]));
 
-    const word = dueWords[idx];
-    const card = container.querySelector('#study-content');
+    const card = el('div', {className:'card flashcard',style:'text-align:center;cursor:pointer'}, []);
+    const wordEl = el('div', {style:'font-size:2rem;font-weight:700'}, [document.createTextNode(word.word)]);
+    const phoneticEl = el('div', {className:'text-muted',style:'font-size:0.9rem'}, [document.createTextNode(word.phonetic||'')]);
+    const morphEl = el('div', {style:'font-size:0.8rem;color:var(--color-accent)',className:'mt-sm'}, []);
+    if (word.prefix||word.root||word.suffix) morphEl.textContent = [word.prefix,word.root,word.suffix].filter(Boolean).join(' + ');
+    const meaningEl = el('div', {className:'mt-md text-muted',style:'font-size:1.1rem;display:none'}, [document.createTextNode(word.meaning||'(暂无释义)')]);
+    const exampleEl = el('div', {className:'mt-sm',style:'font-size:0.9rem;color:var(--color-text-muted);font-style:italic;display:none'}, [document.createTextNode(word.example||'')]);
 
-    card.innerHTML = `
-      <div class="text-center text-muted mb-sm" style="font-size:0.8rem;">
-        第 ${idx + 1} / ${total} 个
-      </div>
-      <div class="progress-bar mb-md">
-        <div class="progress-bar-fill" style="width:${(idx / total) * 100}%"></div>
-      </div>
+    let revealed = false;
+    function reveal() {
+      if (!revealed) {
+        revealed = true;
+        meaningEl.style.display = 'block';
+        exampleEl.style.display = 'block';
+        speak(word.word);
+      } else {
+        revealed = false;
+        meaningEl.style.display = 'none';
+        exampleEl.style.display = 'none';
+      }
+    }
+    card.addEventListener('click', reveal);
 
-      <div class="flashcard" id="flashcard" onclick="window.__lif.flipCard()">
-        <div class="flashcard-inner" id="flashcardInner">
-          <div class="flashcard-front">
-            <div style="font-size:2rem; font-weight:700; margin-bottom:var(--space-sm);">${word.word}</div>
-            <button class="btn btn-sm btn-secondary" onclick="event.stopPropagation(); window.__lif.speak('${word.word}')">
-              🔊 发音
-            </button>
-            <p class="text-muted mt-md" style="font-size:0.8rem;">点击卡片显示答案</p>
-          </div>
-          <div class="flashcard-back">
-            <div style="font-size:2rem; font-weight:700; margin-bottom:var(--space-sm);">${word.word}</div>
-            <div style="font-size:1.25rem; margin-bottom:var(--space-sm);">${word.meaning || '（无释义）'}</div>
-            ${word.example ? `<div class="text-muted" style="font-size:0.875rem; font-style:italic;">"${word.example}"</div>` : ''}
-            ${word.prefix || word.root ? `
-              <div class="mt-sm" style="font-size:0.875rem;">
-                ${word.prefix ? `<span style="color:var(--color-success)">${word.prefix}</span>` : ''}
-                ${word.root ? `<span style="color:var(--color-accent)">${word.root}</span>` : ''}
-                ${word.suffix ? `<span style="color:var(--color-warning)">${word.suffix}</span>` : ''}
-              </div>
-            ` : ''}
-          </div>
-        </div>
-      </div>
+    card.appendChild(wordEl);
+    card.appendChild(phoneticEl);
+    card.appendChild(morphEl);
+    card.appendChild(meaningEl);
+    card.appendChild(exampleEl);
+    wrap.appendChild(card);
 
-      <div id="studyButtons" style="display:none;">
-        <div class="study-buttons">
-          <button class="study-btn correct" onclick="window.__lif.rate('correct', ${idx})">
-            🟢 记住了
-          </button>
-          <button class="study-btn almost" onclick="window.__lif.rate('almost', ${idx})">
-            🟡 有点忘
-          </button>
-          <button class="study-btn wrong" onclick="window.__lif.rate('wrong', ${idx})">
-            🔴 不会
-          </button>
-        </div>
-      </div>
-    `;
+    // 提示
+    wrap.appendChild(el('p', {className:'text-muted text-center',style:'font-size:0.8rem;margin:var(--space-sm) 0'}, [document.createTextNode('💡 点击卡片显示释义，🔊 正在自动朗读')]));
 
-    window.__lif.flipCard = () => {
-      const fc = document.getElementById('flashcard');
-      fc.classList.toggle('flipped');
-      const buttons = document.getElementById('studyButtons');
-      if (buttons) buttons.style.display = 'block';
-    };
+    // 按钮
+    const btnWrap = el('div', {className:'mt-md'}, []);
+    const btnStyle = {flex:1, padding:'var(--space-sm) var(--space-xs)',fontSize:'0.9rem'};
+    btnWrap.appendChild(el('button', {className:'btn btn-danger',style:btnStyle,onClick:()=>answer(word,RATING.WRONG)}, [document.createTextNode('❌ 不会')]));
+    btnWrap.appendChild(el('button', {className:'btn btn-warning',style:btnStyle,onClick:()=>answer(word,RATING.ALMOST)}, [document.createTextNode('🤔 有点忘')]));
+    btnWrap.appendChild(el('button', {className:'btn btn-success',style:btnStyle,onClick:()=>answer(word,RATING.CORRECT)}, [document.createTextNode('✅ 记住了')]));
+    wrap.appendChild(btnWrap);
+
+    function answer(w, rating) {
+      const updates = computeNextReview(w, rating);
+      store.updateWord(w.id, updates);
+      reviewIndex++;
+      showCard();
+    }
   }
 
-  const header = document.createElement('div');
-  header.innerHTML = `
-    <div class="flex items-center gap-sm mb-md">
-      <button class="btn btn-sm btn-secondary" onclick="window.__lif.navigate('home')">← 退出</button>
-      <h2>📝 复习</h2>
-    </div>
-  `;
-  const content = document.createElement('div');
-  content.id = 'study-content';
-  container.insertBefore(header, container.lastChild);
-  container.insertBefore(content, container.lastChild);
-
-  window.__lif.rate = (rating, idx) => {
-    const word = dueWords[idx];
-    const today = new Date().toISOString().split('T')[0];
-
-    let interval = word.interval;
-    let ef = word.ef;
-    let box = word.box;
-    let nextReview = today;
-
-    if (rating === 'correct') {
-      interval = Math.min(30, Math.round(word.interval * ef));
-      ef = Math.min(3.0, word.ef + 0.1);
-      box = Math.min(5, word.box + 1);
-      nextReview = new Date(Date.now() + interval * 86400000).toISOString().split('T')[0];
-      correct++;
-    } else if (rating === 'almost') {
-      ef = Math.max(1.3, word.ef - 0.1);
-      nextReview = today; // 今天再复习一次
-    } else {
-      interval = 1;
-      ef = Math.max(1.3, word.ef - 0.2);
-      box = 1;
-      nextReview = today;
-    }
-
-    store.updateWord(word.word, {
-      interval, ef, box,
-      nextReview,
-      lastReview: today,
-      timesReviewed: word.timesReviewed + 1,
-      timesCorrect: rating === 'correct' ? word.timesCorrect + 1 : word.timesCorrect
-    });
-
-    showCard(idx + 1);
-  };
-
-  window.__lif.speak = (word) => {
-    if (window.speechSynthesis) {
-      window.speechSynthesis.cancel();
-      const u = new SpeechSynthesisUtterance(word);
-      u.lang = 'en-US';
-      u.rate = 0.85;
-      window.speechSynthesis.speak(u);
-    }
-  };
-
-  await showCard(0);
+  showCard();
+  return wrap;
 }
 
-async function showLearningSession() {
-  const newWords = store.getNewWords(5);
-  if (newWords.length === 0) {
-    window.__lif.navigate('home');
-    return;
+// ===== Island View =====
+function renderIsland() {
+  const stats = store.getStats();
+  const wrap = el('div', {className:'view-island animate-fade-in'}, []);
+  wrap.appendChild(el('h2', {className:'mb-md'}, [document.createTextNode('🏝️ 我的岛屿')]));
+
+  const card = el('div', {className:'card',style:'text-align:center;padding:var(--space-lg)'}, []);
+  card.appendChild(el('div', {style:'font-size:4rem;margin:var(--space-md) 0;line-height:1.2'}, [document.createTextNode(getIslandEmojis(stats.total))]));
+  card.appendChild(el('div', {style:'font-size:1.5rem;font-weight:700;color:#4ade80'}, [document.createTextNode(`Lv.${getIslandLevel(stats.total)} ${getIslandName(stats.total)}`)]));
+  card.appendChild(el('div', {className:'text-muted mt-sm'}, [document.createTextNode(`${stats.total} 个词汇建材`)]));
+
+  const next = getNextMilestone(stats.total);
+  if (next) {
+    const progress = Math.round((stats.total/next.t)*100);
+    card.appendChild(el('div', {className:'mt-md'}, [
+      el('div', {className:'flex justify-between mb-sm',style:'font-size:0.8rem'}, [
+        el('span', {}, [document.createTextNode(`${next.e} ${next.l}`)]),
+        el('span', {}, [document.createTextNode(`${stats.total}/${next.t}`)])
+      ]),
+      el('div', {className:'progress-bar'}, [el('div', {className:'progress-bar-fill',style:`width:${progress}%;background:${next.c}`}, [])])
+    ]));
+  } else {
+    card.appendChild(el('div', {className:'mt-md',style:'color:#a855f7;font-weight:700'}, [document.createTextNode('🎉 已解锁全部里程碑！')]));
   }
 
-  const container = document.getElementById('app');
-  container.innerHTML = '';
-  container.appendChild(renderNav());
+  const unlocked = getUnlockedMilestones(stats.total);
+  if (unlocked.length > 0) {
+    card.appendChild(el('div', {className:'mt-md',style:'font-size:0.85rem'}, [
+      el('p', {className:'text-muted',style:'margin:0'}, [document.createTextNode('已解锁里程碑：')]),
+      unlocked.map(m => el('span', {style:`margin-right:var(--space-sm);color:${m.c}`}, [document.createTextNode(`${m.e} ${m.l}`)]))
+    ]));
+  }
+  wrap.appendChild(card);
 
-  let current = 0;
+  // 岛屿说明
+  wrap.appendChild(el('div', {className:'card mt-md'}, [
+    el('h3', {className:'mb-sm'}, [document.createTextNode('🏗️ 岛屿升级规则')]),
+    ...MILESTONES.map(m => el('div', {className:'flex items-center gap-sm',style:'padding:4px 0'}, [
+      el('span', {style:`color:${m.c};font-size:1.2rem`}, [document.createTextNode(m.e)]),
+      el('span', {}, [document.createTextNode(`${m.t} 词 → ${m.l}`)]),
+    ]))
+  ]));
 
-  async function showWord(idx) {
-    if (idx >= newWords.length) {
-      container.querySelector('#study-content').innerHTML = `
-        <div class="card text-center animate-fade-in">
-          <div style="font-size:3rem;">🎉</div>
-          <h2 class="mt-sm">新词学完！</h2>
-          <p class="text-muted mt-sm">已加入复习队列</p>
-          <button class="btn btn-primary mt-md" onclick="window.__lif.navigate('home')">返回首页</button>
-        </div>
-      `;
+  return wrap;
+}
+
+// ===== Stats View =====
+function renderStats() {
+  const stats = store.getStats();
+  const words = store.getAll();
+  const boxCounts = [0,0,0,0,0];
+  for (const w of words) boxCounts[w.box||1]++;
+  const wrap = el('div', {className:'view-stats animate-fade-in'}, []);
+  wrap.appendChild(el('h2', {className:'mb-md'}, [document.createTextNode('📊 学习统计')]));
+  wrap.appendChild(el('div', {className:'grid grid-2 gap-sm mb-md'}, [
+    el('div', {className:'card text-center'}, [el('div',{style:'font-size:1.5rem;font-weight:700'},[document.createTextNode(stats.total)]), el('p',{className:'text-muted',style:'margin:0'},[document.createTextNode('总词汇')])]),
+    el('div', {className:'card text-center'}, [el('div',{style:'font-size:1.5rem;font-weight:700;color:var(--color-success)'},[document.createTextNode(stats.dueToday)]), el('p',{className:'text-muted',style:'margin:0'},[document.createTextNode('今日复习')])]),
+    el('div', {className:'card text-center'}, [el('div',{style:'font-size:1.5rem;font-weight:700'},[document.createTextNode(`${stats.avgCorrect}%`)]), el('p',{className:'text-muted',style:'margin:0'},[document.createTextNode('正确率')])]),
+    el('div', {className:'card text-center'}, [el('div',{style:'font-size:1.5rem;font-weight:700'},[document.createTextNode(stats.mastered)]), el('p',{className:'text-muted',style:'margin:0'},[document.createTextNode('已掌握')])]),
+  ]));
+
+  // 盒子分布
+  wrap.appendChild(el('div', {className:'card mb-md'}, [
+    el('h3', {className:'mb-sm'}, [document.createTextNode('📦 词汇盒子分布')]),
+    ...[1,2,3,4,5].map(i => el('div', {className:'flex items-center gap-sm mb-sm'}, [
+      el('span', {style:`font-weight:700;color:${BOX_COLORS[i]}`}, [document.createTextNode(BOX_LABELS[i])]),
+      el('div', {className:'progress-bar',style:'flex:1'}, [el('div',{className:'progress-bar-fill',style:`width:${stats.total?Math.round(boxCounts[i]/stats.total*100):0}%;background:${BOX_COLORS[i]}`},[])]),
+      el('span', {className:'text-muted',style:'font-size:0.8rem'}, [document.createTextNode(boxCounts[i])])
+    ]))
+  ]));
+
+  // 清空
+  if (stats.total > 0) {
+    wrap.appendChild(el('button', {className:'btn',style:'width:100;color:var(--color-danger)',onClick:()=>{
+      if(confirm('确定要清空所有单词吗？此操作不可恢复！')) { store.clearAll(); render(); }
+    }}, [document.createTextNode('🗑️ 清空所有数据')]));
+  }
+
+  return wrap;
+}
+
+// ===== WordBank View =====
+function renderWordBank() {
+  const words = store.getAll();
+  const wrap = el('div', {className:'view-wordbank animate-fade-in'}, []);
+  wrap.appendChild(el('h2', {className:'mb-sm'}, [document.createTextNode('📚 词库')]));
+  wrap.appendChild(el('p', {className:'text-muted mb-md'}, [document.createTextNode(`共 ${words.length} 个单词`)]));
+
+  const searchInput = el('input', {type:'text',id:'wordbank-search',className:'input mb-md',placeholder:'🔍 搜索单词...'}, []);
+  const list = el('div', {id:'wordbank-list'}, []);
+
+  function renderList(filter='') {
+    const filtered = filter
+      ? words.filter(w => w.word.includes(filter.toLowerCase()) || w.meaning.includes(filter))
+      : words;
+    if (filtered.length === 0) {
+      list.innerHTML = '<p class="text-muted text-center" style="padding:var(--space-xl)">没有找到匹配的单词</p>';
       return;
     }
-
-    const word = newWords[idx];
-    const card = container.querySelector('#study-content');
-    card.innerHTML = `
-      <div class="text-center text-muted mb-sm" style="font-size:0.8rem;">
-        新词学习 ${idx + 1} / ${newWords.length}
-      </div>
-      <div class="progress-bar mb-md">
-        <div class="progress-bar-fill" style="width:${(idx / newWords.length) * 100}%"></div>
-      </div>
-
-      <div class="card text-center" style="padding:var(--space-xl);">
-        <div style="font-size:2.5rem; font-weight:700; margin-bottom:var(--space-sm);">${word.word}</div>
-        <button class="btn btn-sm btn-secondary mb-md" onclick="window.__lif.speak('${word.word}')">
-          🔊 发音
-        </button>
-        <div style="font-size:1.25rem; margin-bottom:var(--space-sm); color:var(--color-text);">
-          ${word.meaning || '（释义待补）'}
-        </div>
-        ${word.example ? `
-          <div class="text-muted" style="font-style:italic; margin-bottom:var(--space-sm);">"${word.example}"</div>
-        ` : ''}
-        ${word.prefix || word.root ? `
-          <div style="margin-top:var(--space-sm);">
-            ${word.prefix ? `<span style="background:var(--color-success); padding:2px 8px; border-radius:4px; color:#fff; margin-right:4px;">${word.prefix}</span>` : ''}
-            ${word.root ? `<span style="background:var(--color-accent); padding:2px 8px; border-radius:4px; color:#fff; margin-right:4px;">${word.root}</span>` : ''}
-            ${word.suffix ? `<span style="background:var(--color-warning); padding:2px 8px; border-radius:4px; color:#1a1a2e; margin-right:4px;">${word.suffix}</span>` : ''}
+    list.innerHTML = filtered.map(w => `
+      <div class="card mb-sm" style="padding:var(--space-sm)">
+        <div class="flex justify-between items-center">
+          <div>
+            <strong>${w.word}</strong>
+            <span style="font-size:0.75rem;color:var(--color-text-muted);margin-left:4px">${w.phonetic||''}</span>
           </div>
-        ` : ''}
-        <button class="btn btn-primary mt-md" onclick="window.__lif.nextWord(${idx})">
-          记住了 → 下一个
-        </button>
+          <div style="font-size:0.85rem;color:${BOX_COLORS[w.box||1]}">${BOX_LABELS[w.box||1]||'新词'}</div>
+        </div>
+        <div style="font-size:0.85rem;color:var(--color-text-muted)">${w.meaning||'(无释义)'}</div>
+        ${w.prefix||w.root?`<div style="font-size:0.75rem;color:var(--color-accent)">${[w.prefix,w.root,w.suffix].filter(Boolean).join(' + ')}</div>`:''}
+        <div style="font-size:0.75rem;color:var(--color-text-muted);font-style:italic">${w.example||''}</div>
       </div>
-    `;
+    `).join('');
   }
 
-  const header = document.createElement('div');
-  header.innerHTML = `
-    <div class="flex items-center gap-sm mb-md">
-      <button class="btn btn-sm btn-secondary" onclick="window.__lif.navigate('home')">← 退出</button>
-      <h2>🆕 学习新词</h2>
-    </div>
-  `;
-  const content = document.createElement('div');
-  content.id = 'study-content';
-  container.insertBefore(header, container.lastChild);
-  container.insertBefore(content, container.lastChild);
+  searchInput.addEventListener('input', () => renderList(searchInput.value));
+  wrap.appendChild(searchInput);
+  wrap.appendChild(list);
+  renderList();
 
-  window.__lif.nextWord = (idx) => {
-    showWord(idx + 1);
-  };
-
-  window.__lif.speak = (word) => {
-    if (window.speechSynthesis) {
-      window.speechSynthesis.cancel();
-      const u = new SpeechSynthesisUtterance(word);
-      u.lang = 'en-US';
-      u.rate = 0.85;
-      window.speechSynthesis.speak(u);
-    }
-  };
-
-  await showWord(0);
+  return wrap;
 }
 
-// ===== Boot =====
-render();
+// ================================================================
+// Boot
+// ================================================================
+window.__lif = { navigate };
+document.addEventListener('DOMContentLoaded', render);
