@@ -110,7 +110,8 @@ const store = {
 // ================================================================
 // MODULE 2: pdf-extractor.js
 // ================================================================
-const PDF_STOP = new Set(['the','be','to','of','and','a','in','that','have','i','it','for','not','on','with','he','as','you','do','at','this','but','his','by','from','they','we','say','her','she','or','an','will','my','one','all','would','there','their','what','so','up','out','if','about','who','get','which','go','me','is','was','are','been','has','had','its','may','can','could','should','shall','just','than','too','very','such','into','then','them','these','those','other','some','any','no','only','own','same','over','after','before','between','under','again','where','when','why','how','each','both','most','few','more','your','our','him','us','himself','herself','themselves','ourselves','now','said','made']);
+// 解析格式: "1. Apple  苹果" / "12. look up  查找"
+// 规则: 数字. + 英文词(1~2个) + 中文释义, 直到下一个数字. 或结束
 
 async function extractFromPDF(file) {
   const pdf = await window.pdfjsLib.getDocument({ data: await file.arrayBuffer() }).promise;
@@ -118,13 +119,21 @@ async function extractFromPDF(file) {
   for (let i = 1; i <= pdf.numPages; i++) {
     const page = await pdf.getPage(i);
     const content = await page.getTextContent();
-    allText += content.items.map(item => item.str).join(' ') + ' ';
+    allText += content.items.map(item => item.str).join(' ') + '\n';
   }
-  const raw = allText.match(/[a-z]+/gi) || [];
-  const words = [...new Set(raw.map(w => w.toLowerCase()))]
-    .filter(w => /^[a-z]{3,20}$/.test(w))
-    .filter(w => !PDF_STOP.has(w))
-    .sort();
+  // 按序号拆分词条: "数字. 英文... 中文..."
+  const entries = allText.split(/(?=\b\d+\.\s)/);
+  const words = [];
+  const seen = new Set();
+  for (const block of entries) {
+    const m = block.match(/^\d+\.\s*([a-zA-Z][a-zA-Z\s]{1,30}?)\s{2,}([\u4e00-\u9fff].*?)(?:\n|$)/);
+    if (!m) continue;
+    const word = m[1].trim();
+    const meaning = m[2].trim();
+    if (!word || word.length > 30 || seen.has(word.toLowerCase())) continue;
+    seen.add(word.toLowerCase());
+    words.push({ word: word.toLowerCase(), meaning });
+  }
   return { words };
 }
 
@@ -689,7 +698,8 @@ function renderImport() {
       lookupStatus.textContent = '0/' + words.length;
 
       // 查询词典
-      const dictResults = await lookupBatch(words, (done, total) => {
+      const wordStrs = words.map(e => e.word);
+      const dictResults = await lookupBatch(wordStrs, (done, total) => {
         lookupStatus.textContent = `${done}/${total}`;
         lookupBar.style.width = `${(done/total)*100}%`;
         document.getElementById('lookup-fill').style.width = `${(done/total)*100}%`;
@@ -697,15 +707,17 @@ function renderImport() {
       progressBar.style.display = 'none';
       lookupStatus.textContent = `查询完成！`;
 
-      // 构建导入数据
-      const importData = words.map(word => {
+      // 构建导入数据: words 现在是 [{ word, meaning }, ...]
+      const importData = words.map(entry => {
+        const word = entry.word;
+        const pdfMeaning = entry.meaning || '';
         const dict = dictResults[word.toLowerCase()] || {};
         const morph = morphologyAnalyze(word);
         return {
           word,
-          meaning: dict.meaning || '',
+          meaning: pdfMeaning || dict.meaning || '',
           phonetic: dict.phonetic || '',
-          example: generateSentence(word, dict.meaning, dict.example),
+          example: generateSentence(word, pdfMeaning || dict.meaning, dict.example),
           prefix: morph.prefix,
           root: morph.root,
           suffix: morph.suffix,
