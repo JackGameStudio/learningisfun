@@ -983,4 +983,5 @@ function renderWordBank() {
 // Boot
 // ================================================================
 window.__lif = { navigate };
+window.navigate = navigate;
 document.addEventListener('DOMContentLoaded', render);
