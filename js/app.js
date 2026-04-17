@@ -536,10 +536,23 @@ function render() {
   const app = document.getElementById('app');
   app.innerHTML = '';
   const views = { home:renderHome, import:renderImport, study:renderStudy, island:renderIsland, stats:renderStats, wordbank:renderWordBank };
+  app.appendChild(renderNav());
   const viewEl = (views[currentView] || renderHome)();
   if (viewEl) app.appendChild(viewEl);
-  app.appendChild(renderNav());
 }
+
+// 返回顶部按钮
+(function initBackToTop() {
+  const btn = document.createElement('button');
+  btn.className = 'back-to-top';
+  btn.textContent = '⬆';
+  btn.title = '返回顶部';
+  btn.addEventListener('click', () => window.scrollTo({ top: 0, behavior: 'smooth' }));
+  document.body.appendChild(btn);
+  window.addEventListener('scroll', () => {
+    btn.classList.toggle('visible', window.scrollY > 300);
+  });
+})();
 
 function el(tag, attrs={}, children=[]) {
   const e = document.createElement(tag);
@@ -558,7 +571,7 @@ function el(tag, attrs={}, children=[]) {
 
 function renderNav() {
   const stats = store.getStats();
-  const nav = el('nav', {className:'bottom-nav'}, []);
+  const nav = el('nav', {className:'top-nav'}, []);
   const items = [
     { view:'home', icon:'🏠', label:'首页' },
     { view:'import', icon:'📥', label:'导入' },
