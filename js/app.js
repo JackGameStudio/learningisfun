@@ -476,8 +476,10 @@ function computeNextReview(word, rating) {
 
 function getDueWords() {
   const today = new Date().toISOString().split('T')[0];
-  return store.getAll().filter(w => w.nextReview && w.nextReview <= today)
-    .sort((a,b) => { if (a.box!==b.box) return a.box-b.box; return a.nextReview.localeCompare(b.nextReview); });
+  const due = store.getAll().filter(w => w.nextReview && w.nextReview <= today);
+  const newDue = due.filter(w => !w.lastReview).sort(() => Math.random() - 0.5);
+  const reviewDue = due.filter(w => w.lastReview).sort((a,b) => { if (a.box!==b.box) return a.box-b.box; return a.nextReview.localeCompare(b.nextReview); });
+  return [...newDue, ...reviewDue];
 }
 
 // ================================================================
