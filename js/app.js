@@ -730,26 +730,19 @@ function renderImport() {
       extractBtn.disabled = false;
       preview.style.display = 'block';
       lookupInfo.style.display = 'block';
+      progressBar.style.display = 'block';
 
-      lookupStatus.textContent = '0/' + words.length;
+      let imported = 0;
+      lookupStatus.textContent = `0/${words.length} (已入库 0)`;
 
-      // 查询词典
-      const wordStrs = words.map(e => e.word);
-      const dictResults = await lookupBatch(wordStrs, (done, total) => {
-        lookupStatus.textContent = `${done}/${total}`;
-        lookupBar.style.width = `${(done/total)*100}%`;
-        document.getElementById('lookup-fill').style.width = `${(done/total)*100}%`;
-      });
-      progressBar.style.display = 'none';
-      lookupStatus.textContent = `查询完成！`;
-
-      // 构建导入数据: words 现在是 [{ word, meaning }, ...]
-      const importData = words.map(entry => {
+      // 逐个查询并立即存入，离开页面也不丢数据
+      for (let i = 0; i < words.length; i++) {
+        const entry = words[i];
         const word = entry.word;
         const pdfMeaning = entry.meaning || '';
-        const dict = dictResults[word.toLowerCase()] || {};
+        const dict = await lookupWord(word) || {};
         const morph = morphologyAnalyze(word);
-        return {
+        const wordData = {
           word,
           meaning: pdfMeaning || dict.meaning || '',
           phonetic: dict.phonetic || '',
@@ -758,29 +751,30 @@ function renderImport() {
           root: morph.root,
           suffix: morph.suffix,
         };
-      });
+        // 每个词查完就存
+        const added = store.addWord(wordData);
+        if (added) imported++;
 
-      previewCount.textContent = `共 ${importData.length} 个单词`;
-      previewList.innerHTML = importData.slice(0, 20).map(w => `
-        <div style="padding:4px 0;border-bottom:1px solid var(--color-bg);display:flex;justify-content:space-between;align-items:center;">
-          <strong>${w.word}</strong>
-          <div style="text-align:right;">
-            ${w.prefix||w.root?`<span style="font-size:0.7rem;color:var(--color-accent)">${[w.prefix,w.root,w.suffix].filter(Boolean).join('+')}</span>`:''}
-            <div style="font-size:0.75rem;color:var(--color-text-muted)">${w.meaning||'❓'}</div>
-          </div>
-        </div>
-      `).join('');
-      if (importData.length > 20) previewList.innerHTML += `<p class="text-muted" style="font-size:0.8rem">... 还有 ${importData.length-20} 个</p>`;
+        const pct = ((i + 1) / words.length * 100).toFixed(0);
+        document.getElementById('lookup-fill').style.width = pct + '%';
+        lookupStatus.textContent = `${i + 1}/${words.length} (已入库 ${imported})`;
 
-      importBtn.style.display = 'block';
-      importBtn.onclick = () => {
-        const count = store.importWords(importData, fileInput.files[0].name);
-        importResult.textContent = `🎉 成功导入 ${count} 个单词！`;
-        importResult.style.display = 'block';
-        preview.style.display = 'none';
-        importBtn.style.display = 'none';
-      };
+        // 实时更新预览列表（最近20个）
+        const item = document.createElement('div');
+        item.style.cssText = 'padding:4px 0;border-bottom:1px solid var(--color-bg);display:flex;justify-content:space-between;align-items:center;';
+        item.innerHTML = `<strong>${word}</strong><div style="text-align:right;"><div style="font-size:0.75rem;color:var(--color-text-muted)">${wordData.meaning||'❓'}</div></div>`;
+        if (previewList.children.length < 20) previewList.appendChild(item);
+        else if (previewList.children.length === 20) previewList.insertAdjacentHTML('beforeend', `<p class="text-muted" style="font-size:0.8rem">... 继续入库中</p>`);
 
+        if (Math.random() > 0.6) await sleep(100);
+      }
+
+      progressBar.style.display = 'none';
+      lookupStatus.textContent = `✅ 全部完成！成功入库 ${imported} 个单词`;
+      previewCount.textContent = `共处理 ${words.length} 个，导入 ${imported} 个（跳过重复 ${words.length - imported} 个）`;
+      importResult.textContent = `🎉 成功导入 ${imported} 个单词！`;
+      importResult.style.display = 'block';
+      // 不再需要确认按钮，已逐个入库
     } catch(e) {
       extractBtn.textContent = '🔍 提取单词'; extractBtn.disabled = false;
       preview.innerHTML = `<p style="color:var(--color-danger)">提取失败：${e.message}</p>`;
