@@ -1080,9 +1080,12 @@ function renderWordBank() {
   wrap.appendChild(el('h2', {className:'mb-sm'}, [document.createTextNode('📚 词库')]));
   wrap.appendChild(el('p', {className:'text-muted mb-md'}, [document.createTextNode(`共 ${words.length} 个单词`)]));
 
-  // AI 例句生成按钮
-  const aiBtn = el('button', {className:'btn btn-secondary mb-md',style:'width:100%'}, [document.createTextNode('🤖 AI 生成例句')]);
+  // AI 例句生成按钮 + 清理假句按钮
+  const aiBtn = el('button', {className:'btn btn-secondary',style:'flex:1'}, [document.createTextNode('🤖 AI 生成例句')]);
+  const cleanBtn = el('button', {className:'btn btn-danger',style:'flex:1;margin-left:8px'}, [document.createTextNode('🗑️ 清理假句')]);
   const aiStatus = el('div', {className:'text-center',style:'font-size:0.85rem;margin-top:8px;padding:8px;background:var(--color-surface);border-radius:4px;display:none'}, []);
+  wrap.appendChild(el('div', {style:'display:flex;margin-bottom:8px'}, [aiBtn, cleanBtn]));
+  wrap.appendChild(aiStatus);
   
   aiBtn.addEventListener('click', async () => {
     try {
@@ -1151,8 +1154,23 @@ function renderWordBank() {
       aiStatus.textContent = `❌ 错误: ${e.message}`;
     }
   });
-  wrap.appendChild(aiBtn);
-  wrap.appendChild(aiStatus);
+
+  // 清理假句：把所有非真实来源的例句清空
+  cleanBtn.addEventListener('click', () => {
+    if (!confirm('确定要清空所有假句吗？真实例句不会被删除。')) return;
+    const data = loadData();
+    let cleared = 0;
+    data.words.forEach(w => {
+      const ex = String(w.example || '').trim();
+      if (ex && (knownTemplates.some(t => ex.startsWith(t)) || /^.{1,20}—/.test(ex))) {
+        w.example = '';
+        cleared++;
+      }
+    });
+    saveData(data);
+    alert(`已清空 ${cleared} 个假句`);
+    render();
+  });
 
   const searchInput = el('input', {type:'text',id:'wordbank-search',className:'input mb-md',placeholder:'🔍 搜索单词...'}, []);
   const list = el('div', {id:'wordbank-list'}, []);
