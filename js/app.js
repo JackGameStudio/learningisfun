@@ -581,60 +581,42 @@ const TEMPLATES = [
   (w,m) => `"${w}" — that's a cool word!`,
 ];
 
-// Datamuse: 找真实搭配（动词/形容词/名词搭配）
-// 从 Tatoeba 获取真实例句（免费、无需 key）
-async function fetchTatoebaExample(word) {
-  try {
-    // 使用 CORS 代理
-    const url = `https://corsproxy.io/?${encodeURIComponent('https://tatoeba.org/en/api_v0/search?query='+word+'&from=eng&to=cmn&limit=5')}`;
-    const resp = await fetch(url);
-    if (!resp.ok) return null;
-    const data = await resp.json();
-    const sentences = (data.results || []).filter(r => r.text && r.text.length > 10 && r.text.length < 150);
-    if (sentences.length > 0) return sentences[Math.floor(Math.random() * sentences.length)].text;
-  } catch (e) { console.warn('Tatoeba error:', e); }
-  return null;
-}
+// 例句生成：只依赖 Free Dictionary API + 延迟防限流
+let lastAPICall = 0;
+const API_DELAY = 500; // 每次调用间隔 500ms
 
 async function generateSentenceSmart(word, meaning='', dictExample='') {
   const w = word.toLowerCase();
 
   // 1. 优先用传入的词典例句
   if (dictExample && typeof dictExample === 'string' && dictExample.trim().length > 5 && dictExample.trim().length < 200) {
-    console.log(`[例句] ${word}: 使用词典例句 ✓`);
     return dictExample.trim();
   }
 
-  // 2. Free Dictionary API 真实例句
+  // 2. Free Dictionary API（加延迟防限流）
   try {
+    const now = Date.now();
+    if (now - lastAPICall < API_DELAY) {
+      await new Promise(r => setTimeout(r, API_DELAY));
+    }
+    lastAPICall = Date.now();
+
     const resp = await fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(w)}`);
     if (resp.ok) {
       const data = await resp.json();
-      const examples = [];
       for (const entry of (data||[])) {
         for (const m of (entry.meanings||[])) {
           for (const def of (m.definitions||[])) {
             if (def.example && typeof def.example === 'string' && def.example.length > 10 && def.example.length < 150) {
-              examples.push(def.example.trim());
+              return def.example.trim();
             }
           }
         }
       }
-      if (examples.length > 0) {
-        console.log(`[例句] ${word}: Free Dict API ✓`);
-        return examples[Math.floor(Math.random() * examples.length)];
-      }
     }
-  } catch (e) { console.warn('Free Dict error:', e); }
+  } catch (e) { /* 静默失败 */ }
 
-  // 3. Tatoeba 真实语料例句
-  try {
-    const tatoeba = await fetchTatoebaExample(w);
-    if (tatoeba) return tatoeba;
-  } catch (e) { console.warn('Tatoeba error:', e); }
-
-  // 4. 都没有 → 不造假句
-  console.log(`[例句] ${word}: 无真实例句`);
+  // 3. 都没有 → 不造假句
   return '';
 }
 
