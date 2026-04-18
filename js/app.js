@@ -181,23 +181,36 @@ async function extractFromPDF(file) {
 // 根据 Y 坐标将 pdf.js 的 text items 拼成行
 function buildLines(items) {
   const filtered = items.filter(it => it.str.trim());
+  // 按 Y（降序）+ X（升序）排序
   filtered.sort((a, b) => {
     const ya = a.transform[5], yb = b.transform[5];
-    if (Math.abs(ya - yb) > 5) return yb - ya; // Y 降序（从上到下）
-    return a.transform[4] - b.transform[4];     // X 升序（从左到右）
+    if (Math.abs(ya - yb) > 5) return yb - ya;
+    return a.transform[4] - b.transform[4];
   });
 
   const lines = [];
   let currentLine = '';
   let lastY = null;
+  let lastRight = null;
 
   for (const item of filtered) {
+    const x = item.transform[4];
     const y = item.transform[5];
+    const right = x + (item.width || 0);
+
     if (lastY !== null && Math.abs(y - lastY) > 5) {
+      // 换行
       if (currentLine) lines.push(currentLine);
       currentLine = item.str;
-    } else {
+      lastRight = right;
+    } else if (lastRight !== null && x - lastRight > (item.height || 12) * 0.3) {
+      // 间距大于字高30%，加空格
       currentLine += ' ' + item.str;
+      lastRight = right;
+    } else {
+      // 紧挨着，直接拼接（修复 "l"+"ibrary" → "library"）
+      currentLine += item.str;
+      lastRight = right;
     }
     lastY = y;
   }
