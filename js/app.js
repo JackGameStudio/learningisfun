@@ -508,36 +508,6 @@ async function fetchTatoebaExample(word) {
   return null;
 }
 
-// 从 Datamuse 获取搭配，只拼短语不拼句子
-async function fetchPhraseFromDatamuse(word) {
-  try {
-    const w = encodeURIComponent(word.toLowerCase());
-    const [adjRes, beforeRes] = await Promise.allSettled([
-      fetch(`https://api.datamuse.com/words?rel_jjb=${w}&max=5`),
-      fetch(`https://api.datamuse.com/words?rc=${w}&max=5`),
-    ]);
-    const adjectives = (adjRes.status==='fulfilled' && adjRes.value.ok) ? (await adjRes.value.json()) : [];
-    const before = (beforeRes.status==='fulfilled' && beforeRes.value.ok) ? (await beforeRes.value.json()) : [];
-
-    // 形容词+名词: "a big company"
-    const adj = adjectives.filter(x => /^[a-z]{2,12}$/.test(x.word));
-    if (adj.length > 0) {
-      const phrase = `a ${adj[Math.floor(Math.random() * adj.length)].word} ${word}`;
-      console.log(`[例句] ${word}: Datamuse 短语 ✓ (${phrase})`);
-      return phrase;
-    }
-
-    // 动词+名词: "start a company"
-    const bv = before.filter(x => /^[a-z]{2,12}$/.test(x.word));
-    if (bv.length > 0) {
-      const phrase = `${bv[Math.floor(Math.random() * bv.length)].word} ${word}`;
-      console.log(`[例句] ${word}: Datamuse 短语 ✓ (${phrase})`);
-      return phrase;
-    }
-  } catch (e) { console.warn('Datamuse error:', e); }
-  return null;
-}
-
 async function generateSentenceSmart(word, meaning='', dictExample='') {
   const w = word.toLowerCase();
 
@@ -575,15 +545,9 @@ async function generateSentenceSmart(word, meaning='', dictExample='') {
     if (tatoeba) return tatoeba;
   } catch (e) { console.warn('Tatoeba error:', e); }
 
-  // 4. Datamuse 只拼短语（不拼句子）
-  try {
-    const phrase = await fetchPhraseFromDatamuse(w);
-    if (phrase) return phrase;
-  } catch (e) { console.warn('Datamuse error:', e); }
-
-  // 5. 都没有 → 只返回释义，不造假句
-  console.log(`[例句] ${word}: 无真实例句，返回释义`);
-  return meaning ? `${word} — ${meaning}` : '';
+  // 4. 都没有 → 不造假句
+  console.log(`[例句] ${word}: 无真实例句`);
+  return '';
 }
 
 // ================================================================
