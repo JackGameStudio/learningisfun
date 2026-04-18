@@ -834,7 +834,7 @@ function renderImport() {
           word,
           meaning: pdfMeaning || dict.meaning || '',
           phonetic: dict.phonetic || '',
-          example: generateSentenceSmart(word, pdfMeaning || dict.meaning || '', dict.example),
+          example: generateSentenceSmart(word, pdfMeaning || dict.meaning || '', String(dict.example || '')),
           prefix: morph.prefix,
           root: morph.root,
           suffix: morph.suffix,
@@ -945,7 +945,7 @@ function renderStudy() {
     // 如果有词根拆分含义显示，优先用
     if (word.explanation) morphEl.textContent = word.explanation;
     const meaningEl = el('div', {className:'mt-md text-muted',style:'font-size:1.1rem;display:none'}, [document.createTextNode(word.meaning||'(暂无释义)')]);
-    const exampleEl = el('div', {className:'mt-sm',style:'font-size:0.9rem;color:var(--color-text-muted);font-style:italic;display:none'}, [document.createTextNode(word.example||'')]);
+    const exampleEl = el('div', {className:'mt-sm',style:'font-size:0.9rem;color:var(--color-text-muted);font-style:italic;display:none'}, [document.createTextNode(String(word.example||''))]);
 
     let revealed = false;
     function reveal() {
@@ -1198,7 +1198,7 @@ function renderWordBank() {
         </div>
         <div style="font-size:0.85rem;color:var(--color-text-muted)">${w.meaning||'(无释义)'}</div>
         ${w.explanation?`<div style="font-size:0.75rem;color:var(--color-accent)">${w.explanation}</div>`:''}
-        <div style="font-size:0.75rem;color:var(--color-text-muted);font-style:italic">${w.example||''}</div>
+        <div style="font-size:0.75rem;color:var(--color-text-muted);font-style:italic">${String(w.example||'')}</div>
       </div>
     `).join('');
   }
