@@ -1157,18 +1157,19 @@ function renderWordBank() {
 
   // 清理假句：把所有非真实来源的例句清空
   cleanBtn.addEventListener('click', () => {
-    if (!confirm('确定要清空所有假句吗？真实例句不会被删除。')) return;
+    if (!confirm('确定要清空所有假句和损坏数据吗？真实例句不会被删除。')) return;
     const data = loadData();
     let cleared = 0;
     data.words.forEach(w => {
       const ex = String(w.example || '').trim();
-      if (ex && (knownTemplates.some(t => ex.startsWith(t)) || /^.{1,20}—/.test(ex))) {
+      // 清理：模板句、释义格式、Promise对象、空字符串
+      if (ex && (knownTemplates.some(t => ex.startsWith(t)) || /^.{1,20}—/.test(ex) || ex.startsWith('[object'))) {
         w.example = '';
         cleared++;
       }
     });
     saveData(data);
-    alert(`已清空 ${cleared} 个假句`);
+    alert(`已清空 ${cleared} 个假句/损坏数据`);
     render();
   });
 
