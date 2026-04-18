@@ -53,6 +53,7 @@ const store = {
       prefix: data.prefix || '',
       root: data.root || '',
       suffix: data.suffix || '',
+      explanation: data.explanation || '',
       box: 1, interval: 1, ef: 2.5,
       nextReview: today, lastReview: null,
       timesReviewed: 0, timesCorrect: 0,
@@ -382,7 +383,22 @@ const PREFIXES = [
   { p:'pro',m:'向前' },{ p:'sub',m:'下面' },{ p:'sur',m:'超过' },
   { p:'ab',m:'离开' },{ p:'ad',m:'向' },{ p:'de',m:'向下' },
   { p:'en',m:'使' },{ p:'ex',m:'向外' },{ p:'in',m:'向内' },
-  { p:'re',m:'再' },{ p:'un',m:'不' },{ p:'up',m:'向上' }
+  { p:'re',m:'再' },{ p:'un',m:'不' },{ p:'up',m:'向上' },
+  // com/con/col/cor 是 com- 前缀的变体
+  { p:'com',m:'共同' },{ p:'con',m:'共同' },{ p:'col',m:'共同' },{ p:'cor',m:'共同' },
+  // 其他常见变体
+  { p:'ac',m:'向' },{ p:'af',m:'向' },{ p:'ag',m:'向' },{ p:'al',m:'向' },
+  { p:'an',m:'向' },{ p:'ap',m:'向' },{ p:'as',m:'向' },{ p:'at',m:'向' },
+  { p:'dif',m:'否定' },{ p:'il',m:'不' },{ p:'im',m:'不' },{ p:'ir',m:'不' },
+  { p:'inter',m:'之间' },{ p:'intro',m:'向内' },{ p:'circum',m:'环绕' },
+  { p:'counter',m:'反对' },{ p:'contra',m:'反对' },
+  { p:'multi',m:'多' },{ p:'poly',m:'多' },
+  { p:'tele',m:'远' },{ p:'micro',m:'微' },
+  { p:'bi',m:'双' },{ p:'tri',m:'三' },
+  { p:'homo',m:'相同' },{ p:'hetero',m:'不同' },
+  { p:'hydro',m:'水' },{ p:'geo',m:'地' },
+  { p:'post',m:'之后' },{ p:'retro',m:'向后' },
+  { p:'sym',m:'共同' },{ p:'syn',m:'共同' },
 ];
 
 const SUFFIXES = [
@@ -410,11 +426,16 @@ function morphologyAnalyze(word) {
   if (suffix) mid = mid.slice(0, -suffix.length);
   if (mid && mid.length >= 3 && ROOTS[mid]) { root=mid; rm=ROOTS[mid].m; }
   else if (mid && mid.length >= 3) root = mid;
+
+  // 只有词根在词根表里确认存在，才显示拆分（否则不可靠）
+  const hasConfirmedRoot = root && ROOTS[root];
+  if (!hasConfirmedRoot) return { prefix:'', root:'', suffix:'', explanation:'', displayText:'' };
+
   const parts = [];
-  if (prefix) parts.push(`${prefix}=${pm}`);
-  if (root) parts.push(`${root}=${rm}`);
-  if (suffix) parts.push(`${suffix}=${sm}`);
-  return { prefix, root, suffix, explanation: parts.join(' | ') };
+  if (prefix) parts.push(`${prefix}(${pm})`);
+  parts.push(`${root}(${rm})`);
+  if (suffix) parts.push(`${suffix}(${sm})`);
+  return { prefix, root, suffix, explanation: parts.join(' + '), displayText: parts.join(' + ') };
 }
 
 // ================================================================
@@ -834,6 +855,7 @@ function renderImport() {
           prefix: morph.prefix,
           root: morph.root,
           suffix: morph.suffix,
+          explanation: morph.explanation || '',
         };
         // 每个词查完就存
         const added = store.addWord(wordData);
@@ -882,7 +904,7 @@ function renderImport() {
     if (!w) { alert('请输入单词'); return; }
     const morph = morphologyAnalyze(w);
     const ex = await generateSentenceSmart(w, meaningInput.value.trim());
-    store.addWord({ word:w, meaning:meaningInput.value.trim(), example:ex, prefix:morph.prefix, root:morph.root, suffix:morph.suffix });
+    store.addWord({ word:w, meaning:meaningInput.value.trim(), example:ex, prefix:morph.prefix, root:morph.root, suffix:morph.suffix, explanation:morph.explanation||'' });
     wordInput.value = ''; meaningInput.value = '';
     alert(`✅ "${w}" 已添加！`);
   });
@@ -937,6 +959,8 @@ function renderStudy() {
     const phoneticEl = el('div', {className:'text-muted',style:'font-size:0.9rem'}, [document.createTextNode(word.phonetic||'')]);
     const morphEl = el('div', {style:'font-size:0.8rem;color:var(--color-accent)',className:'mt-sm'}, []);
     if (word.prefix||word.root||word.suffix) morphEl.textContent = [word.prefix,word.root,word.suffix].filter(Boolean).join(' + ');
+    // 如果有词根拆分含义显示，优先用
+    if (word.explanation) morphEl.textContent = word.explanation;
     const meaningEl = el('div', {className:'mt-md text-muted',style:'font-size:1.1rem;display:none'}, [document.createTextNode(word.meaning||'(暂无释义)')]);
     const exampleEl = el('div', {className:'mt-sm',style:'font-size:0.9rem;color:var(--color-text-muted);font-style:italic;display:none'}, [document.createTextNode(word.example||'')]);
 
@@ -1136,7 +1160,7 @@ function renderWordBank() {
           <div style="font-size:0.85rem;color:${BOX_COLORS[w.box||1]}">${BOX_LABELS[w.box||1]||'新词'}</div>
         </div>
         <div style="font-size:0.85rem;color:var(--color-text-muted)">${w.meaning||'(无释义)'}</div>
-        ${w.prefix||w.root?`<div style="font-size:0.75rem;color:var(--color-accent)">${[w.prefix,w.root,w.suffix].filter(Boolean).join(' + ')}</div>`:''}
+        ${w.explanation?`<div style="font-size:0.75rem;color:var(--color-accent)">${w.explanation}</div>`:''}
         <div style="font-size:0.75rem;color:var(--color-text-muted);font-style:italic">${w.example||''}</div>
       </div>
     `).join('');
