@@ -727,6 +727,7 @@ function el(tag, attrs={}, children=[]) {
     if (k === 'className') e.className = v;
     else if (k === 'style' && typeof v === 'object') Object.assign(e.style, v);
     else if (k.startsWith('on')) e.addEventListener(k.slice(2).toLowerCase(), v);
+    else if (k === 'disabled') { if (v) e.setAttribute(k, ''); } // 布尔属性：只有 true 时才设置
     else e.setAttribute(k, v);
   }
   for (const c of children) {
@@ -802,15 +803,12 @@ function renderHome() {
   ]);
   wrap.appendChild(dueCard);
 
-  // 调试：直接显示 totalWords 值
-  console.log('[DEBUG] totalWords =', totalWords, ', disabled =', totalWords === 0);
-
   const studyBtn = el('button', {
     className:'btn btn-primary btn-lg mb-md',
     style:'width:100%',
-    onClick:()=>{ console.log('[DEBUG] studyBtn clicked!'); navigate('study'); },
-    disabled: false  // 临时强制启用，排查问题
-  }, [document.createTextNode(`🧠 开始学习 (${totalWords}词)`)]);
+    onClick:()=>navigate('study'),
+    disabled: totalWords === 0
+  }, [document.createTextNode('🧠 开始学习')]);
   wrap.appendChild(studyBtn);
 
   if (totalWords === 0) {
