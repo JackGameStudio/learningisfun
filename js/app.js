@@ -730,7 +730,7 @@ function renderHome() {
     className:'btn btn-primary btn-lg mb-md',
     style:'width:100%',
     onClick:()=>navigate('study'),
-    disabled: stats.total === 0
+    disabled: !stats || stats.total === 0
   }, [document.createTextNode('🧠 开始学习')]);
   wrap.appendChild(studyBtn);
 
@@ -1277,11 +1277,12 @@ function renderWordBank() {
   wrap.appendChild(el('h2', {className:'mb-sm'}, [document.createTextNode('📚 词库')]));
   wrap.appendChild(el('p', {className:'text-muted mb-md'}, [document.createTextNode(`共 ${words.length} 个单词`)]));
 
-  // AI 例句生成按钮 + 清理假句按钮
+  // AI 例句生成按钮 + 清理假句按钮 + 补全释义按钮
   const aiBtn = el('button', {className:'btn btn-secondary',style:'flex:1'}, [document.createTextNode('🤖 AI 生成例句')]);
-  const cleanBtn = el('button', {className:'btn btn-danger',style:'flex:1;margin-left:8px'}, [document.createTextNode('🗑️ 清理假句')]);
+  const cleanBtn = el('button', {className:'btn btn-danger',style:'flex:1'}, [document.createTextNode('🗑️ 清理假句')]);
+  const fillMeaningBtn = el('button', {className:'btn btn-warning',style:'flex:1'}, [document.createTextNode('📖 补全释义')]);
   const aiStatus = el('div', {className:'text-center',style:'font-size:0.85rem;margin-top:8px;padding:8px;background:var(--color-surface);border-radius:4px;display:none'}, []);
-  wrap.appendChild(el('div', {style:'display:flex;gap:8px;margin-bottom:8px'}, [aiBtn, cleanBtn]));
+  wrap.appendChild(el('div', {style:'display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap'}, [aiBtn, cleanBtn, fillMeaningBtn]));
   wrap.appendChild(aiStatus);
   
   aiBtn.addEventListener('click', async () => {
@@ -1368,6 +1369,48 @@ function renderWordBank() {
     saveData(data);
     alert(`已清空 ${cleared} 个假句/损坏数据`);
     render();
+  });
+
+  // 补全释义：批量查询没有中文释义的单词
+  fillMeaningBtn.addEventListener('click', async () => {
+    const noMeaning = words.filter(w => !w.meaning || !w.meaning.trim());
+    if (noMeaning.length === 0) {
+      alert('所有单词都有释义了！');
+      return;
+    }
+    if (!confirm(`有 ${noMeaning.length} 个单词缺少释义，开始批量查询吗？`)) return;
+    
+    aiStatus.style.display = 'block';
+    aiStatus.textContent = `⏳ 查询中... 0/${noMeaning.length}`;
+    fillMeaningBtn.disabled = true;
+    
+    let success = 0, failed = 0;
+    for (let i = 0; i < noMeaning.length; i++) {
+      const w = noMeaning[i];
+      aiStatus.textContent = `⏳ ${i+1}/${noMeaning.length}: ${w.word}`;
+      try {
+        const result = await lookupWord(w.word);
+        if (result && result.meaning) {
+          store.updateWord(w.id, { 
+            meaning: result.meaning,
+            phonetic: result.phonetic || w.phonetic,
+            example: result.example || w.example
+          });
+          success++;
+        } else {
+          failed++;
+        }
+      } catch (e) {
+        failed++;
+      }
+      // 延迟避免请求过快
+      await new Promise(r => setTimeout(r, 300));
+    }
+    
+    aiStatus.textContent = `✅ 完成！成功 ${success} 个，失败 ${failed} 个`;
+    aiStatus.style.color = 'var(--color-success)';
+    fillMeaningBtn.disabled = false;
+    setTimeout(() => render(), 1000);
   });
 
   const searchInput = el('input', {type:'text',id:'wordbank-search',className:'input mb-md',placeholder:'🔍 搜索单词...'}, []);
