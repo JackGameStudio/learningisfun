@@ -1133,9 +1133,8 @@ function renderStudy() {
         morphHint ? el('div', {className:'text-muted mt-sm',style:'font-size:0.9rem'}, [document.createTextNode(`词根：${morphHint}`)]) : null,
       ].filter(Boolean)));
 
-      const inputWrap = el('div', {className:'flex gap-sm'}, []);
-      const input = el('input', {type:'text',placeholder:'输入单词',style:'flex:1;padding:var(--space-sm);border:1px solid var(--color-primary);border-radius:var(--radius);font-size:1rem',autofocus:true});
-      const submitBtn = el('button', {className:'btn btn-primary',onClick:checkFill}, [document.createTextNode('确定')]);
+      const input = el('input', {type:'text',placeholder:'输入单词',style:'flex:1;min-width:0;padding:var(--space-sm);border:1px solid var(--color-primary);border-radius:var(--radius);font-size:1rem;box-sizing:border-box',autofocus:true});
+      const submitBtn = el('button', {className:'btn btn-primary',style:'flex-shrink:0',onClick:checkFill}, [document.createTextNode('确定')]);
       input.addEventListener('keydown', e => { if (e.key === 'Enter') checkFill(); });
 
       function checkFill() {
@@ -1150,6 +1149,7 @@ function renderStudy() {
         setTimeout(() => { testIndex++; renderTestQuestion(); }, 800);
       }
 
+      const inputWrap = el('div', {className:'flex gap-sm',style:'width:100%'}, []);
       inputWrap.appendChild(input);
       inputWrap.appendChild(submitBtn);
       wrap.appendChild(inputWrap);
