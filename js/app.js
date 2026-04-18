@@ -27,6 +27,15 @@ function uid() {
 const store = {
   getAll() { return loadData().words; },
   getWord(id) { return loadData().words.find(w => w.id === id) || null; },
+  getSettings() {
+    const d = loadData();
+    return d.settings || { dailyNewWords: 20 };
+  },
+  saveSettings(settings) {
+    const d = loadData();
+    d.settings = { ...d.settings, ...settings };
+    saveData(d);
+  },
   getStats() {
     const words = loadData().words;
     const today = new Date().toISOString().split('T')[0];
@@ -811,6 +820,19 @@ function renderHome() {
   }, [document.createTextNode('🧠 开始学习')]);
   wrap.appendChild(studyBtn);
 
+  // 每日新词设置
+  const settings = store.getSettings();
+  const dailySetting = el('div', {className:'flex items-center justify-between mb-md',style:'padding:var(--space-sm);background:var(--color-surface);border-radius:8px'}, [
+    el('span', {className:'text-muted'}, [document.createTextNode('📊 每日新词')]),
+    el('div', {className:'flex gap-xs'}, [20,30,40].map(n => 
+      el('button', {
+        className: `btn btn-sm ${settings.dailyNewWords === n ? 'btn-primary' : 'btn-secondary'}`,
+        onClick: () => { store.saveSettings({ dailyNewWords: n }); navigate('home'); }
+      }, [document.createTextNode(String(n))])
+    ))
+  ]);
+  wrap.appendChild(dailySetting);
+
   if (totalWords === 0) {
     wrap.appendChild(el('p', {className:'text-muted text-center',style:'margin:var(--space-md 0'}, [
       document.createTextNode('还没有单词，'), el('a',{href:'#',onClick:(e)=>{e.preventDefault();navigate('import');}},[document.createTextNode('去导入一本PDF')]), document.createTextNode(' 开始吧！')
@@ -998,7 +1020,8 @@ function renderStudy() {
   let testQuestions = [];
 
   // 获取新词（没有lastReview的）
-  const newWords = allWords.filter(w => !w.lastReview).slice(0, 5);
+  const settings = store.getSettings();
+  const newWords = allWords.filter(w => !w.lastReview).slice(0, settings.dailyNewWords);
   const hasReview = due.length > 0;
   const hasNewWords = newWords.length > 0;
 
