@@ -1074,15 +1074,14 @@ function renderStudy() {
       return;
     }
 
-    // 生成题目：一半4选1，一半填空
+    // 生成题目：全部4选1
     testQuestions = [];
     const shuffled = pool.sort(() => Math.random() - 0.5);
     for (let i = 0; i < Math.min(10, shuffled.length); i++) {
       const word = shuffled[i];
-      const type = i % 2 === 0 ? 'choice' : 'fill';
       // 获取干扰项
       const distractors = pool.filter(w => w.id !== word.id).sort(() => Math.random() - 0.5).slice(0, 3);
-      testQuestions.push({ word, type, distractors });
+      testQuestions.push({ word, distractors });
     }
 
     testIndex = 0;
@@ -1100,60 +1099,30 @@ function renderStudy() {
     wrap.innerHTML = '';
     wrap.appendChild(el('h2', {className:'mb-md'}, [document.createTextNode(`📝 测试 ${testIndex+1}/${testQuestions.length}`)]));
 
-    if (q.type === 'choice') {
-      // 4选1：给单词选中文
-      wrap.appendChild(el('div', {className:'card mb-md',style:'text-align:center'}, [
-        el('div', {style:'font-size:1.5rem;font-weight:700'}, [document.createTextNode(q.word.word)]),
-        el('button', {className:'btn btn-sm mt-sm',onClick:()=>speak(q.word.word)}, [document.createTextNode('🔊 发音')])
-      ]));
+    // 4选1：给单词选中文
+    wrap.appendChild(el('div', {className:'card mb-md',style:'text-align:center'}, [
+      el('div', {style:'font-size:1.5rem;font-weight:700'}, [document.createTextNode(q.word.word)]),
+      el('button', {className:'btn btn-sm mt-sm',onClick:()=>speak(q.word.word)}, [document.createTextNode('🔊 发音')])
+    ]));
 
-      const options = [q.word, ...q.distractors].sort(() => Math.random() - 0.5);
-      const optionsWrap = el('div', {className:'grid gap-sm'}, []);
-      options.forEach(opt => {
-        optionsWrap.appendChild(el('button', {
-          className:'btn btn-secondary',  // 加上背景色
-          style:'text-align:left',
-          onClick:() => {
-            if (opt.id === q.word.id) {
-              testCorrect++;
-              wrap.appendChild(el('div', {className:'text-success mt-sm',style:'text-align:center'}, [document.createTextNode('✅ 正确！')]));
-            } else {
-              wrap.appendChild(el('div', {className:'text-danger mt-sm',style:'text-align:center'}, [document.createTextNode(`❌ 答案是：${q.word.meaning}`)]));
-            }
-            setTimeout(() => { testIndex++; renderTestQuestion(); }, 800);
+    const options = [q.word, ...q.distractors].sort(() => Math.random() - 0.5);
+    const optionsWrap = el('div', {className:'grid gap-sm'}, []);
+    options.forEach(opt => {
+      optionsWrap.appendChild(el('button', {
+        className:'btn btn-secondary',
+        style:'text-align:left',
+        onClick:() => {
+          if (opt.id === q.word.id) {
+            testCorrect++;
+            wrap.appendChild(el('div', {className:'text-success mt-sm',style:'text-align:center'}, [document.createTextNode('✅ 正确！')]));
+          } else {
+            wrap.appendChild(el('div', {className:'text-danger mt-sm',style:'text-align:center'}, [document.createTextNode(`❌ 答案是：${q.word.meaning}`)]));
           }
-        }, [document.createTextNode(opt.meaning || '(无释义)')]));
-      });
-      wrap.appendChild(optionsWrap);
-    } else {
-      // 填空：给中文+词根提示，写单词
-      const morphHint = q.word.explanation || (q.word.prefix || q.word.root || q.word.suffix ? [q.word.prefix, q.word.root, q.word.suffix].filter(Boolean).join(' + ') : '');
-      wrap.appendChild(el('div', {className:'card mb-md',style:'text-align:center'}, [
-        el('div', {style:'font-size:1.1rem'}, [document.createTextNode(`中文：${q.word.meaning}`)]),
-        morphHint ? el('div', {className:'text-muted mt-sm',style:'font-size:0.9rem'}, [document.createTextNode(`词根：${morphHint}`)]) : null,
-      ].filter(Boolean)));
-
-      const input = el('input', {type:'text',placeholder:'输入单词',style:'flex:1;min-width:0;padding:var(--space-sm);border:1px solid var(--color-primary);border-radius:var(--radius);font-size:1rem;box-sizing:border-box',autofocus:true});
-      const submitBtn = el('button', {className:'btn btn-primary',style:'flex-shrink:0',onClick:checkFill}, [document.createTextNode('确定')]);
-      input.addEventListener('keydown', e => { if (e.key === 'Enter') checkFill(); });
-
-      function checkFill() {
-        const answer = input.value.trim().toLowerCase();
-        const correct = q.word.word.toLowerCase();
-        if (answer === correct) {
-          testCorrect++;
-          wrap.appendChild(el('div', {className:'text-success mt-sm',style:'text-align:center'}, [document.createTextNode('✅ 正确！')]));
-        } else {
-          wrap.appendChild(el('div', {className:'text-danger mt-sm',style:'text-align:center'}, [document.createTextNode(`❌ 答案是：${q.word.word}`)]));
+          setTimeout(() => { testIndex++; renderTestQuestion(); }, 800);
         }
-        setTimeout(() => { testIndex++; renderTestQuestion(); }, 800);
-      }
-
-      const inputWrap = el('div', {className:'flex gap-sm',style:'width:100%'}, []);
-      inputWrap.appendChild(input);
-      inputWrap.appendChild(submitBtn);
-      wrap.appendChild(inputWrap);
-    }
+      }, [document.createTextNode(opt.meaning || '(无释义)')]));
+    });
+    wrap.appendChild(optionsWrap);
   }
 
   // ===== 学习新词阶段 =====
