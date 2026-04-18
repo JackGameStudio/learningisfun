@@ -7,7 +7,6 @@
 // MODULE 1: vocabulary-store.js
 // ================================================================
 const STORE_KEY = 'lif_v1';
-const SETTINGS_KEY = 'lif_settings_v1';
 
 function loadData() {
   try {
@@ -19,18 +18,6 @@ function loadData() {
 
 function saveData(data) {
   try { localStorage.setItem(STORE_KEY, JSON.stringify(data)); } catch {}
-}
-
-function loadSettings() {
-  try {
-    const raw = localStorage.getItem(SETTINGS_KEY);
-    if (!raw) return null;
-    return JSON.parse(raw);
-  } catch { return null; }
-}
-
-function saveSettings(data) {
-  try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(data)); } catch {}
 }
 
 function uid() {
@@ -118,16 +105,7 @@ const store = {
     saveData(d);
     return count;
   },
-  clearAll() { saveData({ version: 1, words: [], meta: {} }); },
-  getSettings() {
-    const defaults = { dailyNewWords: 20 };
-    const saved = loadSettings();
-    return saved ? { ...defaults, ...saved } : defaults;
-  },
-  saveSettings(fields) {
-    const current = store.getSettings();
-    saveSettings({ ...current, ...fields });
-  }
+  clearAll() { saveData({ version: 1, words: [], meta: {} }); }
 };
 
 // ================================================================
@@ -654,7 +632,7 @@ function navigate(view) { currentView = view; render(); }
 function render() {
   const app = document.getElementById('app');
   app.innerHTML = '';
-  const views = { home:renderHome, import:renderImport, study:renderStudy, island:renderIsland, stats:renderStats, wordbank:renderWordBank, settings:renderSettings };
+  const views = { home:renderHome, import:renderImport, study:renderStudy, island:renderIsland, stats:renderStats, wordbank:renderWordBank };
   app.appendChild(renderNav());
   const viewEl = (views[currentView] || renderHome)();
   if (viewEl) app.appendChild(viewEl);
@@ -779,59 +757,6 @@ function renderHome() {
     ]));
   }
 
-  // 设置入口
-  const settings = store.getSettings();
-  const dailyLabel = { 20:'20词/天', 30:'30词/天', 40:'40词/天' }[settings.dailyNewWords] || '20词/天';
-  wrap.appendChild(el('div', {className:'text-center',style:'margin-top:var(--space-md)'}, [
-    el('a', {
-      href:'#',
-      className:'text-muted',
-      style:'font-size:0.8rem;text-decoration:underline',
-      onClick:(e)=>{e.preventDefault();navigate('settings');}
-    }, [document.createTextNode('⚙️ 学习设置：' + dailyLabel)])
-  ]));
-
-  return wrap;
-}
-
-// ===== Settings View =====
-function renderSettings() {
-  const wrap = el('div', {className:'view-settings animate-fade-in'}, []);
-  wrap.appendChild(el('h2', {className:'mb-md'}, [document.createTextNode('⚙️ 学习设置')]));
-
-  const card = el('div', {className:'card'}, []);
-  card.appendChild(el('h3', {style:'font-size:1rem;margin-bottom:var(--space-md)'}, [document.createTextNode('📖 每日新词数量')]));
-
-  const options = [
-    { value: 20, label: '20词/天（轻松）' },
-    { value: 30, label: '30词/天（适中）' },
-    { value: 40, label: '40词/天（挑战）' },
-  ];
-  const settings = store.getSettings();
-  const current = settings.dailyNewWords || 20;
-
-  const optsWrap = el('div', {className:'flex flex-col gap-sm',style:'margin-bottom:var(--space-md)'}, []);
-  for (const opt of options) {
-    const radio = el('label', {
-      className: 'radio-card' + (current === opt.value ? ' selected' : ''),
-      style: 'display:flex;align-items:center;padding:var(--space-sm) var(--space-md);border:2px solid var(--color-border);border-radius:8px;cursor:pointer;transition:all 0.2s'
-    }, [
-      el('input', { type:'radio', name:'dailyNew', value: opt.value, style:'margin-right:var(--space-sm);accent-color:var(--color-accent)', onChange:()=>{
-        store.saveSettings({ dailyNewWords: opt.value });
-        navigate('home');
-      }}),
-      document.createTextNode(opt.label)
-    ]);
-    optsWrap.appendChild(radio);
-  }
-  card.appendChild(optsWrap);
-
-  card.appendChild(el('p', {className:'text-muted',style:'font-size:0.85rem'}, [
-    document.createTextNode('设置后立即生效。每次学习会按此数量学习新词。')
-  ]));
-
-  wrap.appendChild(card);
-  wrap.appendChild(el('button', {className:'btn mt-md',onClick:()=>navigate('home')}, [document.createTextNode('← 返回首页')]));
   return wrap;
 }
 
@@ -998,8 +923,7 @@ function renderStudy() {
   let testQuestions = [];
 
   // 获取新词（没有lastReview的）
-  const dailyNewCount = store.getSettings().dailyNewWords;
-  const newWords = allWords.filter(w => !w.lastReview).slice(0, dailyNewCount);
+  const newWords = allWords.filter(w => !w.lastReview).slice(0, 5);
   const hasReview = due.length > 0;
   const hasNewWords = newWords.length > 0;
 
