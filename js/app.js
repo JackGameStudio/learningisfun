@@ -733,12 +733,13 @@ function renderHome() {
   ]);
   wrap.appendChild(dueCard);
 
+  // 临时：强制启用按钮用于调试
+  const hasWordsForce = true;
   const studyBtn = el('button', {
     className:'btn btn-primary btn-lg mb-md',
     style:'width:100%',
-    onClick:()=>navigate('study'),
-    disabled: !hasWords && (!stats || stats.total === 0)
-  }, [document.createTextNode('🧠 开始学习')]);
+    onClick:()=>navigate('study')
+  }, [document.createTextNode('🧠 开始学习 (' + (stats?.total || 0) + '词)')]);
   wrap.appendChild(studyBtn);
 
   if (!hasWords && stats.total === 0) {
