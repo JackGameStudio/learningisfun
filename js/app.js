@@ -111,57 +111,98 @@ const store = {
 // ================================================================
 // MODULE 2: pdf-extractor.js
 // ================================================================
-// 解析格式: "1. Apple  苹果" / "12. look up  查找"
-// 规则: 数字. + 英文词(1~2个) + 中文释义, 直到下一个数字. 或结束
+// 解析 3 列排版 PDF，每页号码从 1 开始
+// 格式: "1. Creatures 生物 41. Unusual 不尋常 76. Volunteer 志願者"
+// 参考: vocab-extract-guide.md
 
 async function extractFromPDF(file) {
   const pdf = await window.pdfjsLib.getDocument({ data: await file.arrayBuffer() }).promise;
-  let allText = '';
-  for (let i = 1; i <= pdf.numPages; i++) {
-    const page = await pdf.getPage(i);
-    const content = await page.getTextContent();
-    // 用位置信息智能拼接：同一行且间距小的 item 不加空格
-    const items = content.items.filter(item => item.str.trim());
-    let line = '';
-    let lastY = null;
-    let lastRight = null;
-    for (const item of items) {
-      const x = item.transform[4];
-      const y = item.transform[5];
-      const right = x + (item.width || 0);
-      if (lastY !== null && Math.abs(y - lastY) > 5) {
-        // 换行
-        allText += line + '\n';
-        line = item.str;
-      } else if (lastRight !== null && x - lastRight > item.height * 0.3) {
-        // 间距大于字高的30%，加空格
-        line += ' ' + item.str;
-      } else {
-        // 紧挨着，直接拼接（修复 "A"+"pple" → "Apple"）
-        line += item.str;
-      }
-      lastY = y;
-      lastRight = right;
-    }
-    if (line) allText += line + '\n';
-  }
-  // 按序号拆分词条: "数字. 英文... 中文..."
-  const entries = allText.split(/(?=\b\d+\.\s)/);
-  const words = [];
+  const results = [];
   const seen = new Set();
-  for (const block of entries) {
-    // 支持单空格或双空格分隔英文和中文
-    const m = block.match(/^\d+\.\s*([a-zA-Z][a-zA-Z\s]{0,30}?)\s+([\u4e00-\u9fff].*?)(?:\n|$)/);
-    if (!m) continue;
-    const word = m[1].trim();
-    const meaning = m[2].trim();
-    if (!word || word.length > 30 || seen.has(word.toLowerCase())) continue;
-    // 过滤掉纯中文（误匹配）
-    if (/^[\u4e00-\u9fff]/.test(word)) continue;
-    seen.add(word.toLowerCase());
-    words.push({ word: word.toLowerCase(), meaning });
+
+  for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+    const page = await pdf.getPage(pageNum);
+    const content = await page.getTextContent();
+    const lines = buildLines(content.items);
+
+    for (const line of lines) {
+      // 跳过表头行
+      if (/^SET?\s*\d+$/i.test(line)) continue;
+      if (/^(Leaflet|Information|chat|blog|Narrative|Open day|ECA notice|leaflets)/i.test(line) && !/\d+\./.test(line)) continue;
+
+      // 找所有 "数字. " 的位置
+      const splits = [...line.matchAll(/\b(\d+)\.\s/g)];
+      if (splits.length === 0) {
+        // 无编号 → 跨行续文（中文接上一条）
+        if (results.length > 0 && /^[\u4e00-\u9fff]/.test(line)) {
+          results[results.length - 1].meaning += line.replace(/\s+/g, '');
+        }
+        continue;
+      }
+
+      // 处理行首前缀（上一行最后一条被截断的中文续文）
+      const firstStart = splits[0].index;
+      if (firstStart > 0) {
+        const prefix = line.slice(0, firstStart).trim();
+        if (results.length > 0 && prefix && /[\u4e00-\u9fff]/.test(prefix)) {
+          results[results.length - 1].meaning += prefix.replace(/\s+/g, '');
+        }
+      }
+
+      // 解析每个词条
+      for (let i = 0; i < splits.length; i++) {
+        const start = splits[i].index + splits[i][0].length;
+        const end = (i + 1 < splits.length) ? splits[i + 1].index : line.length;
+        const entryText = line.slice(start, end).trim();
+
+        // 找第一个中文字符，分离英文和中文
+        const cm = entryText.match(/[\u4e00-\u9fff]/);
+        if (cm) {
+          const english = entryText.slice(0, cm.index).trim();
+          const chinese = entryText.slice(cm.index).replace(/\s+/g, '');
+
+          if (english && english.length <= 40 && !seen.has(english.toLowerCase())) {
+            // 过滤纯中文（误匹配）
+            if (!/^[\u4e00-\u9fff]/.test(english)) {
+              seen.add(english.toLowerCase());
+              results.push({ word: english.toLowerCase(), meaning: chinese });
+            }
+          }
+        }
+      }
+    }
   }
-  return { words, rawText: allText };
+
+  // 返回结果和原始文本（用于调试）
+  const allText = results.map((r, i) => `${i + 1}. ${r.word}  ${r.meaning}`).join('\n');
+  return { words: results, rawText: allText };
+}
+
+// 根据 Y 坐标将 pdf.js 的 text items 拼成行
+function buildLines(items) {
+  const filtered = items.filter(it => it.str.trim());
+  filtered.sort((a, b) => {
+    const ya = a.transform[5], yb = b.transform[5];
+    if (Math.abs(ya - yb) > 5) return yb - ya; // Y 降序（从上到下）
+    return a.transform[4] - b.transform[4];     // X 升序（从左到右）
+  });
+
+  const lines = [];
+  let currentLine = '';
+  let lastY = null;
+
+  for (const item of filtered) {
+    const y = item.transform[5];
+    if (lastY !== null && Math.abs(y - lastY) > 5) {
+      if (currentLine) lines.push(currentLine);
+      currentLine = item.str;
+    } else {
+      currentLine += ' ' + item.str;
+    }
+    lastY = y;
+  }
+  if (currentLine) lines.push(currentLine);
+  return lines;
 }
 
 const pdfExtractor = { extractFromPDF };
