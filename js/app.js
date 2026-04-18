@@ -834,7 +834,7 @@ function renderImport() {
           word,
           meaning: pdfMeaning || dict.meaning || '',
           phonetic: dict.phonetic || '',
-          example: generateSentenceSmart(word, pdfMeaning || dict.meaning || '', String(dict.example || '')),
+          example: await generateSentenceSmart(word, pdfMeaning || dict.meaning || '', String(dict.example || '')),
           prefix: morph.prefix,
           root: morph.root,
           suffix: morph.suffix,
