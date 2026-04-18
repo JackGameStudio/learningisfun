@@ -1060,23 +1060,35 @@ function renderWordBank() {
     if (needsAI.length === 0) { alert('所有单词已有 AI 例句 ✓'); return; }
     
     aiBtn.disabled = true; aiBtn.textContent = '⏳ 生成中...';
-    aiStatus.style.display = 'block'; aiStatus.textContent = `准备生成 ${needsAI.length} 个例句...`;
+    aiStatus.style.display = 'block'; 
+    aiStatus.textContent = `准备生成 ${needsAI.length} 个例句... (检查网络)`;
     
-    let done = 0;
+    // 测试 API 是否可用
+    const test = await generateAISentence('test', 'a test word');
+    if (!test) {
+      aiStatus.style.color = 'var(--color-danger)';
+      aiStatus.textContent = '❌ API 调用失败，请检查网络或 API Key';
+      aiBtn.disabled = false; aiBtn.textContent = '🤖 重试';
+      return;
+    }
+    aiStatus.textContent = `API 正常 ✓ 开始生成 ${needsAI.length} 个例句...`;
+    
+    let success = 0;
     for (const w of needsAI) {
-      aiStatus.textContent = `生成中: ${done+1}/${needsAI.length} (${w.word})`;
+      aiStatus.textContent = `生成中: ${success+1}/${needsAI.length} (${w.word})`;
       const s = await generateAISentence(w.word, w.meaning);
       if (s) {
         w.example = s;
         const data = loadData();
         const idx = data.words.findIndex(x => x.id === w.id);
         if (idx >= 0) { data.words[idx].example = s; saveData(data); }
+        success++;
       }
-      done++;
-      await new Promise(r => setTimeout(r, 300)); // 避免请求过快
+      await new Promise(r => setTimeout(r, 300));
     }
     aiBtn.textContent = '✓ 完成！'; aiBtn.disabled = false;
-    aiStatus.textContent = `已为 ${done} 个单词生成 AI 例句`;
+    aiStatus.style.color = 'var(--color-success)';
+    aiStatus.textContent = `✅ 成功生成 ${success}/${needsAI.length} 个 AI 例句`;
     setTimeout(() => render(), 1500);
   });
   wrap.appendChild(aiBtn);
