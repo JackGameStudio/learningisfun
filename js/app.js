@@ -1,5 +1,5 @@
 /**
- * app.js — LearningIsFun 主程序（单文件，解决GitHub Pages CORS）
+ * app.js - LearningIsFun 主程序（单文件，解决GitHub Pages CORS）
  * 使用 Free Dictionary API 在线查询
  */
 
@@ -917,9 +917,6 @@ function renderStudy() {
     const meaningEl = el('div', {className:'mt-md text-muted',style:'font-size:1.1rem;display:none'}, [document.createTextNode(word.meaning||'(暂无释义)')]);
     const exampleEl = el('div', {className:'mt-sm',style:'font-size:0.9rem;color:var(--color-text-muted);font-style:italic;display:none'}, [document.createTextNode(word.example||'')]);
 
-    // 检查是否是模板生成的例句（需要 AI 替换）
-    const isTemplateExample = word.example && /^(I learn|The word|Can you use|Do you know|"[^"]+" is a useful|My teacher explained|I wrote)/.test(word.example);
-
     let revealed = false;
     function reveal() {
       if (!revealed) {
@@ -927,12 +924,6 @@ function renderStudy() {
         meaningEl.style.display = 'block';
         exampleEl.style.display = 'block';
         speak(word.word);
-        // 异步获取 AI 例句（如果没有例句，或是模板例句）
-        if (!word.example?.trim() || isTemplateExample) {
-          generateAISentence(word.word, word.meaning).then(s => {
-            if (s) exampleEl.textContent = s;
-          });
-        }
       } else {
         revealed = false;
         meaningEl.style.display = 'none';
@@ -1058,6 +1049,38 @@ function renderWordBank() {
   const wrap = el('div', {className:'view-wordbank animate-fade-in'}, []);
   wrap.appendChild(el('h2', {className:'mb-sm'}, [document.createTextNode('📚 词库')]));
   wrap.appendChild(el('p', {className:'text-muted mb-md'}, [document.createTextNode(`共 ${words.length} 个单词`)]));
+
+  // AI 例句生成按钮
+  const aiBtn = el('button', {className:'btn btn-secondary mb-md',style:'width:100%'}, [document.createTextNode('🤖 AI 生成例句')]);
+  const aiStatus = el('p', {className:'text-muted text-center',style:'font-size:0.85rem;margin-top:8px;display:none'}, []);
+  
+  aiBtn.addEventListener('click', async () => {
+    const templatePattern = /^(I learn|The word|Can you use|Do you know|"[^"]+" is a useful|My teacher explained|I wrote)/;
+    const needsAI = words.filter(w => !w.example?.trim() || templatePattern.test(w.example));
+    if (needsAI.length === 0) { alert('所有单词已有 AI 例句 ✓'); return; }
+    
+    aiBtn.disabled = true; aiBtn.textContent = '⏳ 生成中...';
+    aiStatus.style.display = 'block'; aiStatus.textContent = `准备生成 ${needsAI.length} 个例句...`;
+    
+    let done = 0;
+    for (const w of needsAI) {
+      aiStatus.textContent = `生成中: ${done+1}/${needsAI.length} (${w.word})`;
+      const s = await generateAISentence(w.word, w.meaning);
+      if (s) {
+        w.example = s;
+        const data = loadData();
+        const idx = data.words.findIndex(x => x.id === w.id);
+        if (idx >= 0) { data.words[idx].example = s; saveData(data); }
+      }
+      done++;
+      await new Promise(r => setTimeout(r, 300)); // 避免请求过快
+    }
+    aiBtn.textContent = '✓ 完成！'; aiBtn.disabled = false;
+    aiStatus.textContent = `已为 ${done} 个单词生成 AI 例句`;
+    setTimeout(() => render(), 1500);
+  });
+  wrap.appendChild(aiBtn);
+  wrap.appendChild(aiStatus);
 
   const searchInput = el('input', {type:'text',id:'wordbank-search',className:'input mb-md',placeholder:'🔍 搜索单词...'}, []);
   const list = el('div', {id:'wordbank-list'}, []);
