@@ -473,46 +473,57 @@ const TEMPLATES = [
 ];
 
 // Datamuse: 找真实搭配（动词/形容词/名词搭配）
-async function fetchCollocations(word) {
-  // 用 Datamuse 多种关系找真正的搭配
+// 从 Tatoeba 获取真实例句（免费、无需 key）
+async function fetchTatoebaExample(word) {
   try {
-    const w = encodeURIComponent(word.toLowerCase());
-    // 同时查：前面常跟的词(lc)、后面常跟的词(rc)、同义 adjective修饰等
-    const [beforeRes, afterRes, adjRes] = await Promise.allSettled([
-      fetch(`https://api.datamuse.com/words?lc=${w}&max=8`),   // word 前面的词
-      fetch(`https://api.datamuse.com/words?rc=${w}&max=8`),   // word 后面的词
-      fetch(`https://api.datamuse.com/words?rel_jjb=${w}&max=5`), // 形容词修饰
-    ]);
-    const wordsBefore = (beforeRes.status==='fulfilled' && beforeRes.value.ok) ? (await beforeRes.value.json()) : [];
-    const wordsAfter = (afterRes.status==='fulfilled' && afterRes.value.ok) ? (await afterRes.value.json()) : [];
-    const adjectives = (adjRes.status==='fulfilled' && adjRes.value.ok) ? (await adjRes.value.json()) : [];
-
-    return {
-      before: wordsBefore.filter(x => /^[a-z]{2,15}$/.test(x.word)).map(x => x.word),
-      after: wordsAfter.filter(x => /^[a-z]{2,15}$/.test(x.word)).map(x => x.word),
-      adjectives: adjectives.filter(x => /^[a-z]{2,15}$/.test(x.word)).map(x => x.word),
-    };
+    const resp = await fetch(`https://tatoeba.org/en/api_v0/search?query=${encodeURIComponent(word)}&from=eng&to=cmn&limit=5`);
+    if (!resp.ok) return null;
+    const data = await resp.json();
+    const sentences = (data.results || []).filter(r => r.text && r.text.length > 10 && r.text.length < 150);
+    if (sentences.length > 0) return sentences[Math.floor(Math.random() * sentences.length)].text;
   } catch {}
-  return { before: [], after: [], adjectives: [] };
+  return null;
 }
 
-// 用搭配 + 自然模板生成例句
+// 从 Datamuse 获取搭配，只拼短语不拼句子
+async function fetchPhraseFromDatamuse(word) {
+  try {
+    const w = encodeURIComponent(word.toLowerCase());
+    const [adjRes, beforeRes] = await Promise.allSettled([
+      fetch(`https://api.datamuse.com/words?rel_jjb=${w}&max=5`),
+      fetch(`https://api.datamuse.com/words?rc=${w}&max=5`),
+    ]);
+    const adjectives = (adjRes.status==='fulfilled' && adjRes.value.ok) ? (await adjRes.value.json()) : [];
+    const before = (beforeRes.status==='fulfilled' && beforeRes.value.ok) ? (await beforeRes.value.json()) : [];
+
+    // 形容词+名词: "a big company"
+    const adj = adjectives.filter(x => /^[a-z]{2,12}$/.test(x.word));
+    if (adj.length > 0) return `a ${adj[Math.floor(Math.random() * adj.length)].word} ${word}`;
+
+    // 动词+名词: "start a company"
+    const bv = before.filter(x => /^[a-z]{2,12}$/.test(x.word));
+    if (bv.length > 0) return `${bv[Math.floor(Math.random() * bv.length)].word} ${word}`;
+  } catch {}
+  return null;
+}
+
 async function generateSentenceSmart(word, meaning='', dictExample='') {
   const w = word.toLowerCase();
-  // 优先用词典原生例句
+
+  // 1. 优先用传入的词典例句
   if (dictExample?.trim() && dictExample.length > 5 && dictExample.length < 200) {
     return dictExample.trim();
   }
 
-  // 尝试从 Free Dictionary API 获取真实例句
+  // 2. Free Dictionary API 真实例句
   try {
     const resp = await fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(w)}`);
     if (resp.ok) {
       const data = await resp.json();
       const examples = [];
       for (const entry of (data||[])) {
-        for (const meaning of (entry.meanings||[])) {
-          for (const def of (meaning.definitions||[])) {
+        for (const m of (entry.meanings||[])) {
+          for (const def of (m.definitions||[])) {
             if (def.example?.trim() && def.example.length > 10 && def.example.length < 150) {
               examples.push(def.example.trim());
             }
@@ -523,30 +534,16 @@ async function generateSentenceSmart(word, meaning='', dictExample='') {
     }
   } catch {}
 
-  // Datamuse 找搭配
-  const coll = await fetchCollocations(w);
+  // 3. Tatoeba 真实语料例句
+  const tatoeba = await fetchTatoebaExample(w);
+  if (tatoeba) return tatoeba;
 
-  // 用搭配构造自然的句子
-  if (coll.adjectives.length > 0) {
-    const adj = coll.adjectives[Math.floor(Math.random() * Math.min(coll.adjectives.length, 3))];
-    return `The ${adj} ${word} ${meaning ? '(' + meaning + ')' : ''} caught my attention.`;
-  }
-  if (coll.before.length > 0) {
-    const b = coll.before[Math.floor(Math.random() * Math.min(coll.before.length, 3))];
-    return `We learned about "${b} ${word}"${meaning ? ' — it means ' + meaning : ''} in class today.`;
-  }
-  if (coll.after.length > 0) {
-    const a = coll.after[Math.floor(Math.random() * Math.min(coll.after.length, 3))];
-    return `My teacher said "${word} ${a}"${meaning ? ' (' + meaning + ')' : ''} is important to remember.`;
-  }
+  // 4. Datamuse 只拼短语（不拼句子）
+  const phrase = await fetchPhraseFromDatamuse(w);
+  if (phrase) return phrase;
 
-  // 最终兜底：简单好用的模板
-  const fallbacks = [
-    meaning ? `${word} means "${meaning}". I'll try to use it in my writing.` : `I learned the word "${word}" today.`,
-    meaning ? `"${word}" — ${meaning}. That's a useful word!` : `"${word}" is a new word I want to remember.`,
-    meaning ? `Can you use "${word}" (${meaning}) in a sentence?` : `I found the word "${word}" in my reading.`,
-  ];
-  return fallbacks[Math.floor(Math.random() * fallbacks.length)];
+  // 5. 都没有 → 只返回释义，不造假句
+  return meaning ? `${word} — ${meaning}` : '';
 }
 
 // ================================================================
@@ -1081,15 +1078,15 @@ function renderWordBank() {
   const aiStatus = el('p', {className:'text-muted text-center',style:'font-size:0.85rem;margin-top:8px;display:none'}, []);
   
   aiBtn.addEventListener('click', async () => {
-    // 匹配所有已知模板句子
+    // 匹配所有已知模板句子和短语
     const knownTemplates = [
       'I learn', 'The word', 'Can you use', 'Do you know',
       '"', 'My teacher explained', 'I wrote', 'I saw',
       'Mom asked', 'I will try', 'I know', 'Every time',
       'Can you guess', 'I remember', 'People often', 'When I hear',
-      'The word "'
+      'a ', 'the ', // Datamuse 生成的短语
     ];
-    const isTemplate = ex => knownTemplates.some(t => ex.startsWith(t));
+    const isTemplate = ex => !ex?.trim() || knownTemplates.some(t => ex.startsWith(t)) || /^.{1,20}—/.test(ex);
     const needsAI = words.filter(w => !w.example?.trim() || isTemplate(w.example));
     if (needsAI.length === 0) { alert('所有单词已有例句 ✓'); return; }
     
