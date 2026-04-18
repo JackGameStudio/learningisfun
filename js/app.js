@@ -661,10 +661,10 @@ function computeNextReview(word, rating) {
 
 function getDueWords() {
   const today = new Date().toISOString().split('T')[0];
-  const due = store.getAll().filter(w => w.nextReview && w.nextReview <= today);
-  const newDue = due.filter(w => !w.lastReview).sort(() => Math.random() - 0.5);
-  const reviewDue = due.filter(w => w.lastReview).sort((a,b) => { if (a.box!==b.box) return a.box-b.box; return a.nextReview.localeCompare(b.nextReview); });
-  return [...newDue, ...reviewDue];
+  // 只返回已学过（有lastReview）且到期待复习的词
+  const due = store.getAll().filter(w => w.lastReview && w.nextReview && w.nextReview <= today);
+  // 按box升序（优先复习难记的词）+ nextReview升序
+  return due.sort((a,b) => { if (a.box!==b.box) return a.box-b.box; return a.nextReview.localeCompare(b.nextReview); });
 }
 
 // ================================================================
