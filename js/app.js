@@ -29,7 +29,7 @@ const store = {
   getWord(id) { return loadData().words.find(w => w.id === id) || null; },
   getSettings() {
     const d = loadData();
-    return d.settings || { dailyNewWords: 20 };
+    return d.settings || { dailyNewWords: 20, dailyMax: 60 };
   },
   saveSettings(settings) {
     const d = loadData();
@@ -1008,6 +1008,21 @@ function renderStudy() {
   const wrap = el('div', {className:'view-study'}, []);
   const due = getDueWords();
   const allWords = store.getAll();
+  const settings = store.getSettings();
+  const dailyGoal = settings.dailyNewWords || 20;
+  const dailyMax = settings.dailyMax || 60;
+
+  // 追踪今日已学数量（按日期区分，过期重置）
+  const today = new Date().toISOString().split('T')[0];
+  const meta = loadData().meta || {};
+  if (meta.lastLearnDate !== today) {
+    meta.lastLearnDate = today;
+    meta.learnedToday = 0;
+    const d = loadData();
+    d.meta = meta;
+    saveData(d);
+  }
+  let learnedToday = meta.learnedToday || 0;
 
   // 阶段状态
   let phase = 'review'; // review | learn | test | celebration
@@ -1018,12 +1033,15 @@ function renderStudy() {
   let testIndex = 0;
   let testCorrect = 0;
   let testQuestions = [];
+  let reachedGoal = false; // 达到每日目标（20词）
+  let reachedMax = false;   // 达到每日上限（60词）
 
-  // 获取新词（没有lastReview的）
-  const settings = store.getSettings();
-  const newWords = allWords.filter(w => !w.lastReview).slice(0, settings.dailyNewWords);
+  // 获取所有未学的新词
+  const allNewWords = allWords.filter(w => !w.lastReview);
+  // 根据今日已学数量，决定可学的新词
+  const remainingNewWords = allNewWords.slice(learnedToday, learnedToday + dailyGoal);
+  const hasNewWords = remainingNewWords.length > 0;
   const hasReview = due.length > 0;
-  const hasNewWords = newWords.length > 0;
 
   // 如果既没复习也没新词
   if (!hasReview && !hasNewWords) {
@@ -1052,7 +1070,6 @@ function renderStudy() {
       particles.push(particle);
       document.body.appendChild(particle);
     }
-    // 3秒后移除粒子
     setTimeout(() => particles.forEach(p => p.remove()), 3000);
 
     wrap.appendChild(el('div', {className:'card',style:'text-align:center;padding:var(--space-xl)'}, [
@@ -1066,24 +1083,18 @@ function renderStudy() {
 
   // ===== 测试阶段 =====
   function showTest() {
-    // 生成测试题：从复习/学习的词中出题
     const pool = [...reviewedWords, ...learnedWords].filter(w => w && w.word && w.meaning);
     if (pool.length < 2) {
-      // 词不够，跳过测试直接庆祝
       showCelebration();
       return;
     }
-
-    // 生成题目：全部4选1
     testQuestions = [];
     const shuffled = pool.sort(() => Math.random() - 0.5);
     for (let i = 0; i < Math.min(10, shuffled.length); i++) {
       const word = shuffled[i];
-      // 获取干扰项
       const distractors = pool.filter(w => w.id !== word.id).sort(() => Math.random() - 0.5).slice(0, 3);
       testQuestions.push({ word, distractors });
     }
-
     testIndex = 0;
     testCorrect = 0;
     renderTestQuestion();
@@ -1094,17 +1105,13 @@ function renderStudy() {
       showCelebration();
       return;
     }
-
     const q = testQuestions[testIndex];
     wrap.innerHTML = '';
     wrap.appendChild(el('h2', {className:'mb-md'}, [document.createTextNode(`📝 测试 ${testIndex+1}/${testQuestions.length}`)]));
-
-    // 4选1：给单词选中文
     wrap.appendChild(el('div', {className:'card mb-md',style:'text-align:center'}, [
       el('div', {style:'font-size:1.5rem;font-weight:700'}, [document.createTextNode(q.word.word)]),
       el('button', {className:'btn btn-sm mt-sm',onClick:()=>speak(q.word.word)}, [document.createTextNode('🔊 发音')])
     ]));
-
     const options = [q.word, ...q.distractors].sort(() => Math.random() - 0.5);
     const optionsWrap = el('div', {className:'grid gap-sm'}, []);
     options.forEach(opt => {
@@ -1127,8 +1134,9 @@ function renderStudy() {
 
   // ===== 学习新词阶段 =====
   function showLearn() {
-    if (learnIndex >= newWords.length) {
-      // 学完新词，进入测试
+    const word = remainingNewWords[learnIndex];
+    if (!word || reachedMax) {
+      // 没有更多新词或已达上限
       if (learnedWords.length > 0) {
         showTest();
       } else {
@@ -1137,39 +1145,94 @@ function renderStudy() {
       return;
     }
 
-    const word = newWords[learnIndex];
+    const currentTotal = learnedToday + learnedWords.length;
+    const isGoalReached = currentTotal >= dailyGoal;
+    const isMaxReached = currentTotal >= dailyMax;
+
     wrap.innerHTML = '';
-    wrap.appendChild(el('h2', {className:'mb-sm'}, [document.createTextNode(`📚 学习新词 ${learnIndex+1}/${newWords.length}`)]));
+    // 进度条
+    const progressPct = Math.min(100, (currentTotal / dailyGoal) * 100);
+    wrap.appendChild(el('div', {className:'mb-sm'}, [
+      el('div', {style:'display:flex;justify-content:space-between;font-size:0.85rem;color:var(--color-text-muted)',className:'mb-xs'}, [
+        document.createTextNode(`📚 学习新词 ${currentTotal}/${dailyGoal}`),
+        document.createTextNode(isMaxReached ? '🕐 明日继续' : (isGoalReached ? '🎯 目标达成' : ''))
+      ]),
+      el('div', {style:'height:6px;background:var(--color-surface);border-radius:3px;overflow:hidden'}, [
+        el('div', {style:`width:${progressPct}%;height:100%;background:${isGoalReached?'var(--color-success)':'var(--color-accent)'};transition:width 0.3s`}, [])
+      ])
+    ]));
 
     const card = el('div', {className:'card',style:'text-align:center;padding:var(--space-lg)'}, []);
-    // 单词
     card.appendChild(el('div', {style:'font-size:2rem;font-weight:700'}, [document.createTextNode(word.word)]));
-    // 发音按钮
     card.appendChild(el('button', {className:'btn btn-sm mt-sm',onClick:()=>speak(word.word)}, [document.createTextNode('🔊 发音')]));
-    // 音标
     if (word.phonetic) card.appendChild(el('div', {className:'text-muted mt-sm'}, [document.createTextNode(word.phonetic)]));
-    // 词根拆解
     const morphText = word.explanation || (word.prefix || word.root || word.suffix ? [word.prefix, word.root, word.suffix].filter(Boolean).join(' + ') : '');
-    if (morphText) card.appendChild(el('div', {className:'mt-md',style:'color:var(--color-accent)'}, [document.createTextNode(`词根：${morphText}`)]));
-    // 释义
+    if (morphText) card.appendChild(el('div', {className:'mt-md',style:'color:var(--color-accent)'}, [document.createTextNode(morphText)]));
     card.appendChild(el('div', {className:'mt-md',style:'font-size:1.2rem'}, [document.createTextNode(word.meaning || '(暂无释义)')]));
-    // 例句
     if (word.example) card.appendChild(el('div', {className:'mt-sm text-muted',style:'font-style:italic'}, [document.createTextNode(String(word.example))]));
-
     wrap.appendChild(card);
 
-    // 确认按钮
+    // 已达60词上限
+    if (isMaxReached) {
+      wrap.appendChild(el('div', {className:'card mt-lg',style:'text-align:center;background:var(--color-surface)'}, [
+        el('div', {style:'font-size:1.5rem'}, [document.createTextNode('🌙 今日学习已达上限（60词）')]),
+        el('p', {className:'text-muted mt-sm'}, [document.createTextNode('明天继续学习更多单词吧～')]),
+        learnedWords.length > 0
+          ? el('button', {className:'btn btn-primary mt-md',onClick:()=>showTest()}, [document.createTextNode('📝 进入测试')])
+          : el('button', {className:'btn mt-md',onClick:()=>navigate('home')}, [document.createTextNode('🏠 返回首页')])
+      ]));
+      return;
+    }
+
+    // 达成20词目标，显示继续学习按钮
+    if (isGoalReached && !reachedGoal) {
+      reachedGoal = true;
+      wrap.appendChild(el('div', {className:'card mt-lg',style:'text-align:center;background:linear-gradient(135deg,var(--color-success),#2ecc71);color:#fff'}, [
+        el('div', {style:'font-size:2rem'}, [document.createTextNode('🎉')]),
+        el('h3', {className:'mt-sm'}, [document.createTextNode('今日目标达成！')]),
+        el('p', {}, [document.createTextNode(`已学习 ${currentTotal} 个新词 💪`)]),
+        el('button', {className:'btn mt-md',style:'background:#fff;color:var(--color-success)',onClick:()=>{
+          learnedWords.length > 0 ? showTest() : showCelebration();
+        }}, [document.createTextNode('📝 进入测试')]),
+        el('button', {className:'btn mt-sm',style:'color:#fff;opacity:0.9',onClick:()=>{
+          reachedGoal = true;
+          const d = loadData();
+          d.meta = d.meta || {};
+          d.meta.lastLearnDate = today;
+          d.meta.learnedToday = learnedToday + learnedWords.length;
+          saveData(d);
+          learnedWords = [];
+          learnedToday = d.meta.learnedToday;
+          learnIndex = 0;
+          showLearn();
+        }}, [document.createTextNode('🚀 继续学习更多 →')])
+      ]));
+      return;
+    }
+
+    // 普通学习按钮
     wrap.appendChild(el('button', {className:'btn btn-primary mt-lg',style:'width:100%',onClick:()=>{
-      // 标记已学习（设为盒子1，下次复习）
-      const today = new Date().toISOString().slice(0,10);
-      store.updateWord(word.id, { lastReview: today, box: 1, timesReviewed: 1 });
+      const today2 = new Date().toISOString().slice(0,10);
+      store.updateWord(word.id, { lastReview: today2, box: 1, timesReviewed: 1 });
       learnedWords.push(word);
+      learnedToday++;
+      const d = loadData();
+      d.meta = d.meta || {};
+      d.meta.lastLearnDate = today2;
+      d.meta.learnedToday = learnedToday;
+      saveData(d);
       learnIndex++;
       showLearn();
     }}, [document.createTextNode('✅ 我学会了')]));
 
-    // 跳过按钮
     wrap.appendChild(el('button', {className:'btn mt-sm',style:'width:100%',onClick:()=>{
+      learnedWords.push(word);
+      learnedToday++;
+      const d = loadData();
+      d.meta = d.meta || {};
+      d.meta.lastLearnDate = today;
+      d.meta.learnedToday = learnedToday;
+      saveData(d);
       learnIndex++;
       showLearn();
     }}, [document.createTextNode('⏭️ 跳过')]));
@@ -1178,8 +1241,7 @@ function renderStudy() {
   // ===== 复习阶段 =====
   function showReview() {
     if (reviewIndex >= due.length) {
-      // 复习结束，进入学习新词
-      if (newWords.length > 0) {
+      if (remainingNewWords.length > 0) {
         phase = 'learn';
         showLearn();
       } else if (reviewedWords.length > 0) {
@@ -1212,16 +1274,11 @@ function renderStudy() {
       if (!revealed) {
         revealed = true;
         meaningEl.style.display = 'block';
-        exampleEl.style.display = 'block';
-        speak(word.word);
-      } else {
-        revealed = false;
-        meaningEl.style.display = 'none';
-        exampleEl.style.display = 'none';
+        exampleEl.style.display = word.example ? 'block' : 'none';
+        card.style.background = 'var(--color-surface)';
       }
     }
-    card.addEventListener('click', reveal);
-
+    card.onclick = reveal;
     card.appendChild(wordEl);
     card.appendChild(phoneticEl);
     card.appendChild(morphEl);
@@ -1229,28 +1286,21 @@ function renderStudy() {
     card.appendChild(exampleEl);
     wrap.appendChild(card);
 
-    wrap.appendChild(el('p', {className:'text-muted text-center',style:'font-size:0.8rem;margin:var(--space-sm) 0'}, [document.createTextNode('💡 点击卡片显示释义')]));
-
-    const btnWrap = el('div', {className:'mt-md'}, []);
-    const btnStyle = {flex:1, padding:'var(--space-sm) var(--space-xs)',fontSize:'0.9rem'};
-    btnWrap.appendChild(el('button', {className:'btn btn-danger',style:btnStyle,onClick:()=>answerReview(word,RATING.WRONG)}, [document.createTextNode('❌ 不会')]));
-    btnWrap.appendChild(el('button', {className:'btn btn-warning',style:btnStyle,onClick:()=>answerReview(word,RATING.ALMOST)}, [document.createTextNode('🤔 有点忘')]));
-    btnWrap.appendChild(el('button', {className:'btn btn-success',style:btnStyle,onClick:()=>answerReview(word,RATING.CORRECT)}, [document.createTextNode('✅ 记住了')]));
+    const btnWrap = el('div', {className:'grid gap-sm mt-lg'}, []);
+    btnWrap.appendChild(el('button', {className:'btn btn-danger',onClick:()=>{ store.updateWord(word.id, computeNextReview(word, 0)); reviewedWords.push(word); reviewIndex++; setTimeout(showReview, 300); }}, [document.createTextNode('❌ 不会')]));
+    btnWrap.appendChild(el('button', {className:'btn btn-warning',onClick:()=>{ store.updateWord(word.id, computeNextReview(word, 1)); reviewedWords.push(word); reviewIndex++; setTimeout(showReview, 300); }}, [document.createTextNode('🤔 有点忘')]));
+    btnWrap.appendChild(el('button', {className:'btn btn-success',onClick:()=>{ store.updateWord(word.id, computeNextReview(word, 2)); reviewedWords.push(word); reviewIndex++; setTimeout(showReview, 300); }}, [document.createTextNode('✅ 记住了')]));
     wrap.appendChild(btnWrap);
 
-    function answerReview(w, rating) {
-      const updates = computeNextReview(w, rating);
-      store.updateWord(w.id, updates);
-      reviewedWords.push(w);
-      reviewIndex++;
-      showReview();
-    }
+    return wrap;
   }
 
-  // 开始
-  if (phase === 'review') showReview();
-  else if (phase === 'learn') showLearn();
-
+  // 启动
+  if (phase === 'review' && hasReview) {
+    showReview();
+  } else {
+    showLearn();
+  }
   return wrap;
 }
 
