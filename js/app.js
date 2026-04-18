@@ -111,7 +111,41 @@ const store = {
 // ================================================================
 // MODULE 2: pdf-extractor.js
 // ================================================================
-// 解析 3 列排版 PDF，每页号码从 1 开始
+// ================================================================
+// CSV 导入（比 PDF 稳定可靠）
+// 格式: number,english,chinese（有表头）
+async function extractFromCSV(file) {
+  const text = await file.text();
+  const lines = text.trim().split(/\r?\n/);
+  const words = [];
+  const seen = new Set();
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (!line || i === 0) continue; // 跳过空行和表头
+
+    // 解析 CSV：支持逗号分隔
+    const cols = line.split(',');
+    if (cols.length < 2) continue;
+
+    const english = cols[cols.length - 2].trim(); // 倒数第二列是英文
+    const chinese = cols[cols.length - 1].trim(); // 最后一列是中文
+
+    if (!english || !chinese) continue;
+    if (english.length > 40) continue;
+    if (seen.has(english.toLowerCase())) continue;
+    // 过滤纯中文（误匹配）
+    if (/^[\u4e00-\u9fff]/.test(english)) continue;
+
+    seen.add(english.toLowerCase());
+    words.push({ word: english.toLowerCase(), meaning: chinese });
+  }
+
+  return { words, rawText: `${words.length} words from CSV` };
+}
+
+// ================================================================
+// PDF 导入（3 列排版，每页号码从 1 开始）
 // 格式: "1. Creatures 生物 41. Unusual 不尋常 76. Volunteer 志願者"
 // 参考: vocab-extract-guide.md
 
@@ -822,10 +856,10 @@ function renderImport() {
   const card = el('div', {className:'card'}, []);
 
   const fileWrap = el('div', {className:'file-upload mb-md'}, []);
-  const fileInput = el('input', {type:'file',accept:'.pdf',id:'pdf-input',className:'hidden',onChange:()=>{
+  const fileInput = el('input', {type:'file',accept:'.pdf,.csv',id:'file-input',className:'hidden',onChange:()=>{
     if(fileInput.files[0]) fileLabel.textContent = fileInput.files[0].name;
   }});
-  const fileLabel = el('label', {for:'pdf-input',className:'file-label'}, [document.createTextNode('📄 选择 PDF 文件')]);
+  const fileLabel = el('label', {for:'file-input',className:'file-label'}, [document.createTextNode('📄 选择 PDF 或 CSV 文件')]);
   fileWrap.appendChild(fileInput);
   fileWrap.appendChild(fileLabel);
   card.appendChild(fileWrap);
@@ -862,10 +896,14 @@ function renderImport() {
   const debugBox = el('pre', {id:'raw-text-debug',style:'display:none;max-height:200px;overflow:auto;font-size:0.7rem;background:var(--color-bg);padding:8px;border-radius:4px;white-space:pre-wrap;word-break:break-all'}, []);
 
   extractBtn.addEventListener('click', async () => {
-    if (!fileInput.files[0]) { alert('请先选择一个 PDF 文件'); return; }
+    if (!fileInput.files[0]) { alert('请先选择一个文件'); return; }
+    const file = fileInput.files[0];
+    const isCSV = file.name.toLowerCase().endsWith('.csv');
     extractBtn.disabled = true; extractBtn.textContent = '⏳ 提取中...';
     try {
-      const { words, rawText } = await pdfExtractor.extractFromPDF(fileInput.files[0]);
+      const { words, rawText } = isCSV
+        ? await extractFromCSV(file)
+        : await pdfExtractor.extractFromPDF(file);
       extractBtn.textContent = `✅ 提取到 ${words.length} 个单词`;
       extractBtn.disabled = false;
       preview.style.display = 'block';
