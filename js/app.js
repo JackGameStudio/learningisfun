@@ -497,12 +497,14 @@ const TEMPLATES = [
 // 从 Tatoeba 获取真实例句（免费、无需 key）
 async function fetchTatoebaExample(word) {
   try {
-    const resp = await fetch(`https://tatoeba.org/en/api_v0/search?query=${encodeURIComponent(word)}&from=eng&to=cmn&limit=5`);
+    // 使用 CORS 代理
+    const url = `https://corsproxy.io/?${encodeURIComponent('https://tatoeba.org/en/api_v0/search?query='+word+'&from=eng&to=cmn&limit=5')}`;
+    const resp = await fetch(url);
     if (!resp.ok) return null;
     const data = await resp.json();
     const sentences = (data.results || []).filter(r => r.text && r.text.length > 10 && r.text.length < 150);
     if (sentences.length > 0) return sentences[Math.floor(Math.random() * sentences.length)].text;
-  } catch {}
+  } catch (e) { console.warn('Tatoeba error:', e); }
   return null;
 }
 
@@ -519,12 +521,20 @@ async function fetchPhraseFromDatamuse(word) {
 
     // 形容词+名词: "a big company"
     const adj = adjectives.filter(x => /^[a-z]{2,12}$/.test(x.word));
-    if (adj.length > 0) return `a ${adj[Math.floor(Math.random() * adj.length)].word} ${word}`;
+    if (adj.length > 0) {
+      const phrase = `a ${adj[Math.floor(Math.random() * adj.length)].word} ${word}`;
+      console.log(`[例句] ${word}: Datamuse 短语 ✓ (${phrase})`);
+      return phrase;
+    }
 
     // 动词+名词: "start a company"
     const bv = before.filter(x => /^[a-z]{2,12}$/.test(x.word));
-    if (bv.length > 0) return `${bv[Math.floor(Math.random() * bv.length)].word} ${word}`;
-  } catch {}
+    if (bv.length > 0) {
+      const phrase = `${bv[Math.floor(Math.random() * bv.length)].word} ${word}`;
+      console.log(`[例句] ${word}: Datamuse 短语 ✓ (${phrase})`);
+      return phrase;
+    }
+  } catch (e) { console.warn('Datamuse error:', e); }
   return null;
 }
 
@@ -533,6 +543,7 @@ async function generateSentenceSmart(word, meaning='', dictExample='') {
 
   // 1. 优先用传入的词典例句
   if (dictExample?.trim() && dictExample.length > 5 && dictExample.length < 200) {
+    console.log(`[例句] ${word}: 使用词典例句 ✓`);
     return dictExample.trim();
   }
 
@@ -551,9 +562,12 @@ async function generateSentenceSmart(word, meaning='', dictExample='') {
           }
         }
       }
-      if (examples.length > 0) return examples[Math.floor(Math.random() * examples.length)];
+      if (examples.length > 0) {
+        console.log(`[例句] ${word}: Free Dict API ✓`);
+        return examples[Math.floor(Math.random() * examples.length)];
+      }
     }
-  } catch {}
+  } catch (e) { console.warn('Free Dict error:', e); }
 
   // 3. Tatoeba 真实语料例句
   const tatoeba = await fetchTatoebaExample(w);
@@ -564,6 +578,7 @@ async function generateSentenceSmart(word, meaning='', dictExample='') {
   if (phrase) return phrase;
 
   // 5. 都没有 → 只返回释义，不造假句
+  console.log(`[例句] ${word}: 无真实例句，返回释义`);
   return meaning ? `${word} — ${meaning}` : '';
 }
 
