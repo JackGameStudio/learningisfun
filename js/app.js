@@ -689,16 +689,15 @@ function renderNav() {
 }
 
 function renderHome() {
-  let stats;
-  try {
-    stats = store.getStats();
-  } catch (e) {
-    stats = { total: 0, mastered: 0, learning: 0, newWords: 0, dueToday: 0, avgCorrect: 0 };
-  }
-  const due = getDueWords();
-  // 备用：直接检查词库数量，避免stats计算错误导致按钮禁用
+  // 直接从词库读取数量，避免getStats()计算出错导致按钮禁用
   const words = store.getAll();
-  const hasWords = words.length > 0;
+  const totalWords = words.length;
+  let stats = { total: totalWords, mastered: 0, learning: 0, newWords: 0, dueToday: 0, avgCorrect: 0 };
+  try {
+    const s = store.getStats();
+    if (s && typeof s.total === 'number') stats = { ...stats, ...s };
+  } catch {}
+  const due = getDueWords();
 
   const wrap = el('div', {className:'view-home animate-fade-in'}, []);
 
@@ -710,7 +709,7 @@ function renderHome() {
   wrap.appendChild(el('div', {className:'card mb-md'}, [
     el('div', {className:'flex justify-between items-center mb-sm'}, [
       el('span', {}, [document.createTextNode('📚 我的词库')]),
-      el('strong', {}, [document.createTextNode(`${stats.total} 词`)])
+      el('strong', {}, [document.createTextNode(`${totalWords} 词`)])
     ]),
     el('div', {className:'flex gap-md text-center',style:'font-size:0.8rem;color:var(--color-text-muted)'}, [
       el('div', {}, [el('strong',{style:'color:var(--color-success)'},[document.createTextNode(stats.mastered)]), el('br'), document.createTextNode('已掌握')]),
@@ -733,16 +732,15 @@ function renderHome() {
   ]);
   wrap.appendChild(dueCard);
 
-  // 临时：强制启用按钮用于调试
-  const hasWordsForce = true;
   const studyBtn = el('button', {
     className:'btn btn-primary btn-lg mb-md',
     style:'width:100%',
-    onClick:()=>navigate('study')
-  }, [document.createTextNode('🧠 开始学习 (' + (stats?.total || 0) + '词)')]);
+    onClick:()=>navigate('study'),
+    disabled: totalWords === 0
+  }, [document.createTextNode('🧠 开始学习')]);
   wrap.appendChild(studyBtn);
 
-  if (!hasWords && stats.total === 0) {
+  if (totalWords === 0) {
     wrap.appendChild(el('p', {className:'text-muted text-center',style:'margin:var(--space-md 0'}, [
       document.createTextNode('还没有单词，'), el('a',{href:'#',onClick:(e)=>{e.preventDefault();navigate('import');}},[document.createTextNode('去导入一本PDF')]), document.createTextNode(' 开始吧！')
     ]));
