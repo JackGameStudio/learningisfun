@@ -689,9 +689,16 @@ function renderNav() {
 }
 
 function renderHome() {
-  const stats = store.getStats();
+  let stats;
+  try {
+    stats = store.getStats();
+  } catch (e) {
+    stats = { total: 0, mastered: 0, learning: 0, newWords: 0, dueToday: 0, avgCorrect: 0 };
+  }
   const due = getDueWords();
-  const stats2 = store.getStats();
+  // 备用：直接检查词库数量，避免stats计算错误导致按钮禁用
+  const words = store.getAll();
+  const hasWords = words.length > 0;
 
   const wrap = el('div', {className:'view-home animate-fade-in'}, []);
 
@@ -730,11 +737,11 @@ function renderHome() {
     className:'btn btn-primary btn-lg mb-md',
     style:'width:100%',
     onClick:()=>navigate('study'),
-    disabled: !stats || stats.total === 0
+    disabled: !hasWords && (!stats || stats.total === 0)
   }, [document.createTextNode('🧠 开始学习')]);
   wrap.appendChild(studyBtn);
 
-  if (stats.total === 0) {
+  if (!hasWords && stats.total === 0) {
     wrap.appendChild(el('p', {className:'text-muted text-center',style:'margin:var(--space-md 0'}, [
       document.createTextNode('还没有单词，'), el('a',{href:'#',onClick:(e)=>{e.preventDefault();navigate('import');}},[document.createTextNode('去导入一本PDF')]), document.createTextNode(' 开始吧！')
     ]));
