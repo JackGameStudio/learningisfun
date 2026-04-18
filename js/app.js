@@ -1114,50 +1114,67 @@ function renderWordBank() {
 
   // AI 例句生成按钮
   const aiBtn = el('button', {className:'btn btn-secondary mb-md',style:'width:100%'}, [document.createTextNode('🤖 AI 生成例句')]);
-  const aiStatus = el('p', {className:'text-muted text-center',style:'font-size:0.85rem;margin-top:8px;display:none'}, []);
+  const aiStatus = el('div', {className:'text-center',style:'font-size:0.85rem;margin-top:8px;padding:8px;background:var(--color-surface);border-radius:4px;display:none'}, []);
   
   aiBtn.addEventListener('click', async () => {
     try {
-      console.log('[AI] 按钮点击');
-      // 匹配所有已知模板句子和短语
+      aiStatus.style.display = 'block';
+      aiStatus.style.color = 'var(--color-text)';
+      aiStatus.textContent = '🔄 开始...';
+      
       const knownTemplates = [
         'I learn', 'The word', 'Can you use', 'Do you know',
         '"', 'My teacher explained', 'I wrote', 'I saw',
         'Mom asked', 'I will try', 'I know', 'Every time',
         'Can you guess', 'I remember', 'People often', 'When I hear',
-        'a ', 'the ', // Datamuse 生成的短语
+        'a ', 'the ',
       ];
       const isTemplate = ex => !ex?.trim() || knownTemplates.some(t => ex.startsWith(t)) || /^.{1,20}—/.test(ex);
       const needsAI = words.filter(w => !w.example?.trim() || isTemplate(w.example));
-      console.log(`[AI] 需要 ${needsAI.length} 个词`);
-      if (needsAI.length === 0) { alert('所有单词已有例句 ✓'); return; }
       
-      aiBtn.disabled = true; aiBtn.textContent = '⏳ 生成中...';
-      aiStatus.style.display = 'block';
-      aiStatus.textContent = `准备为 ${needsAI.length} 个词生成例句...`;
+      aiStatus.textContent = `📊 需要 ${needsAI.length} 个词`;
+      if (needsAI.length === 0) { 
+        aiStatus.textContent = '✅ 所有单词已有例句';
+        aiStatus.style.color = 'var(--color-success)';
+        return; 
+      }
       
-      let success = 0;
-      for (const w of needsAI) {
-        aiStatus.textContent = `生成中: ${success+1}/${needsAI.length} (${w.word})`;
-        const s = await generateSentenceSmart(w.word, w.meaning);
-        if (s) {
-          w.example = s;
-          const data = loadData();
-          const idx = data.words.findIndex(x => x.id === w.id);
-          if (idx >= 0) { data.words[idx].example = s; saveData(data); }
-          success++;
+      aiBtn.disabled = true; 
+      aiBtn.textContent = '⏳ 生成中...';
+      
+      let success = 0, failed = 0;
+      for (let i = 0; i < needsAI.length; i++) {
+        const w = needsAI[i];
+        aiStatus.textContent = `⏳ ${i+1}/${needsAI.length}: ${w.word}`;
+        try {
+          const s = await generateSentenceSmart(w.word, w.meaning);
+          if (s) {
+            w.example = s;
+            const data = loadData();
+            const idx = data.words.findIndex(x => x.id === w.id);
+            if (idx >= 0) { data.words[idx].example = s; saveData(data); }
+            success++;
+          } else {
+            failed++;
+          }
+        } catch (e) {
+          failed++;
+          aiStatus.textContent = `❌ ${w.word}: ${e.message}`;
+          await new Promise(r => setTimeout(r, 500));
         }
         await new Promise(r => setTimeout(r, 150));
       }
-      aiBtn.textContent = '✓ 完成！'; aiBtn.disabled = false;
+      
+      aiBtn.textContent = '✓ 完成！'; 
+      aiBtn.disabled = false;
       aiStatus.style.color = 'var(--color-success)';
-      aiStatus.textContent = `✅ 已为 ${success} 个单词生成例句`;
+      aiStatus.textContent = `✅ 成功 ${success}，失败 ${failed}`;
       setTimeout(() => render(), 1500);
     } catch (e) {
-      console.error('[AI] 错误:', e);
       aiBtn.textContent = '❌ 出错了';
-      aiStatus.textContent = `错误: ${e.message}`;
+      aiBtn.disabled = false;
       aiStatus.style.color = 'var(--color-error)';
+      aiStatus.textContent = `❌ 错误: ${e.message}`;
     }
   });
   wrap.appendChild(aiBtn);
