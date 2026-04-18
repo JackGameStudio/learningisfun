@@ -556,7 +556,7 @@ async function generateSentenceSmart(word, meaning='', dictExample='') {
       for (const entry of (data||[])) {
         for (const m of (entry.meanings||[])) {
           for (const def of (m.definitions||[])) {
-            if (def.example?.trim() && def.example.length > 10 && def.example.length < 150) {
+            if (def.example && typeof def.example === 'string' && def.example.length > 10 && def.example.length < 150) {
               examples.push(def.example.trim());
             }
           }
@@ -1129,8 +1129,14 @@ function renderWordBank() {
         'Can you guess', 'I remember', 'People often', 'When I hear',
         'a ', 'the ',
       ];
-      const isTemplate = ex => !ex?.trim() || knownTemplates.some(t => ex.startsWith(t)) || /^.{1,20}—/.test(ex);
-      const needsAI = words.filter(w => !w.example?.trim() || isTemplate(w.example));
+      const isTemplate = ex => {
+        const s = String(ex || '').trim();
+        return !s || knownTemplates.some(t => s.startsWith(t)) || /^.{1,20}—/.test(s);
+      };
+      const needsAI = words.filter(w => {
+        const ex = String(w.example || '').trim();
+        return !ex || isTemplate(ex);
+      });
       
       aiStatus.textContent = `📊 需要 ${needsAI.length} 个词`;
       if (needsAI.length === 0) { 
