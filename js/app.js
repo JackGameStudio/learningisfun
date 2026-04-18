@@ -1084,7 +1084,7 @@ function renderWordBank() {
   const aiBtn = el('button', {className:'btn btn-secondary',style:'flex:1'}, [document.createTextNode('🤖 AI 生成例句')]);
   const cleanBtn = el('button', {className:'btn btn-danger',style:'flex:1;margin-left:8px'}, [document.createTextNode('🗑️ 清理假句')]);
   const aiStatus = el('div', {className:'text-center',style:'font-size:0.85rem;margin-top:8px;padding:8px;background:var(--color-surface);border-radius:4px;display:none'}, []);
-  wrap.appendChild(el('div', {style:'display:flex;margin-bottom:8px'}, [aiBtn, cleanBtn]));
+  wrap.appendChild(el('div', {style:'display:flex;gap:8px;margin-bottom:8px'}, [aiBtn, cleanBtn]));
   wrap.appendChild(aiStatus);
   
   aiBtn.addEventListener('click', async () => {
