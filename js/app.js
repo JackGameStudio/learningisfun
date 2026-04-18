@@ -412,7 +412,7 @@ const SUFFIXES = [
 ];
 
 function morphologyAnalyze(word) {
-  const w = word.toLowerCase();
+  const w = String(word || '').toLowerCase();
   let prefix='', root='', suffix='';
   let pm='', rm='', sm='';
   for (const x of PREFIXES) {
@@ -451,11 +451,11 @@ async function lookupWord(word) {
     const data = await resp.json();
     if (!data || !data[0]) { DICT_CACHE.set(word, null); return null; }
     const entry = data[0];
-    const meaning = entry.meanings && entry.meanings[0]
-      ? entry.meanings[0].definitions[0].definition
+    const meaning = (entry.meanings && entry.meanings[0] && entry.meanings[0].definitions && entry.meanings[0].definitions[0])
+      ? entry.meanings[0].definitions[0].definition || ''
       : '';
     const phonetic = entry.phonetic || (entry.phonetics && entry.phonetics[0] ? entry.phonetics[0].text : '');
-    const example = entry.meanings && entry.meanings[0]
+    const example = (entry.meanings && entry.meanings[0] && entry.meanings[0].definitions && entry.meanings[0].definitions[0])
       ? entry.meanings[0].definitions[0].example || ''
       : '';
     const result = { meaning, phonetic, example };
@@ -542,7 +542,7 @@ async function generateSentenceSmart(word, meaning='', dictExample='') {
   const w = word.toLowerCase();
 
   // 1. 优先用传入的词典例句
-  if (dictExample?.trim() && dictExample.length > 5 && dictExample.length < 200) {
+  if (dictExample && typeof dictExample === 'string' && dictExample.trim().length > 5 && dictExample.trim().length < 200) {
     console.log(`[例句] ${word}: 使用词典例句 ✓`);
     return dictExample.trim();
   }
@@ -570,12 +570,16 @@ async function generateSentenceSmart(word, meaning='', dictExample='') {
   } catch (e) { console.warn('Free Dict error:', e); }
 
   // 3. Tatoeba 真实语料例句
-  const tatoeba = await fetchTatoebaExample(w);
-  if (tatoeba) return tatoeba;
+  try {
+    const tatoeba = await fetchTatoebaExample(w);
+    if (tatoeba) return tatoeba;
+  } catch (e) { console.warn('Tatoeba error:', e); }
 
   // 4. Datamuse 只拼短语（不拼句子）
-  const phrase = await fetchPhraseFromDatamuse(w);
-  if (phrase) return phrase;
+  try {
+    const phrase = await fetchPhraseFromDatamuse(w);
+    if (phrase) return phrase;
+  } catch (e) { console.warn('Datamuse error:', e); }
 
   // 5. 都没有 → 只返回释义，不造假句
   console.log(`[例句] ${word}: 无真实例句，返回释义`);
@@ -1191,7 +1195,11 @@ function renderWordBank() {
 
   function renderList(filter='') {
     const filtered = filter
-      ? words.filter(w => w.word.includes(filter.toLowerCase()) || w.meaning.includes(filter))
+      ? words.filter(w => {
+          const word = String(w.word || '');
+          const meaning = String(w.meaning || '');
+          return word.includes(filter.toLowerCase()) || meaning.includes(filter);
+        })
       : words;
     if (filtered.length === 0) {
       list.innerHTML = '<p class="text-muted text-center" style="padding:var(--space-xl)">没有找到匹配的单词</p>';
