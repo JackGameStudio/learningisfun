@@ -470,13 +470,57 @@ const TEMPLATES = [
   (w,m) => `I wrote "${w}" in my notebook.`,
 ];
 const SENTENCE_CACHE = new Map();
+const AI_SENTENCE_CACHE = new Map();
+const AI_PENDING = new Set();
+const AI_CONFIG = {
+  url: 'https://integrate.api.nvidia.com/v1/chat/completions',
+  key: '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',
+  model: 'minimaxai/minimax-m2.7'
+};
 
 function generateSentence(word, meaning='', existingExample='') {
   if (existingExample?.trim()) return existingExample.trim();
+  if (AI_SENTENCE_CACHE.has(word.toLowerCase())) return AI_SENTENCE_CACHE.get(word.toLowerCase());
   if (SENTENCE_CACHE.has(word.toLowerCase())) return SENTENCE_CACHE.get(word.toLowerCase());
   const s = TEMPLATES[Math.floor(Math.random() * TEMPLATES.length)](word, meaning);
   SENTENCE_CACHE.set(word.toLowerCase(), s);
   return s;
+}
+
+async function generateAISentence(word, meaning='') {
+  const key = word.toLowerCase();
+  if (AI_SENTENCE_CACHE.has(key)) return AI_SENTENCE_CACHE.get(key);
+  if (AI_PENDING.has(key)) return null; // 已在请求中
+  AI_PENDING.add(key);
+  try {
+    const resp = await fetch(AI_CONFIG.url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${AI_CONFIG.key}` },
+      body: JSON.stringify({
+        model: AI_CONFIG.model,
+        messages: [
+          { role: 'system', content: 'You are an English teacher. Generate ONE simple, natural English sentence using the given word. The sentence should be easy for a 10-year-old to understand. Only output the sentence, nothing else.' },
+          { role: 'user', content: meaning ? `Word: "${word}" (meaning: ${meaning})` : `Word: "${word}"` }
+        ],
+        max_tokens: 100,
+        temperature: 0.8,
+        stream: false
+      })
+    });
+    if (!resp.ok) return null;
+    const data = await resp.json();
+    const sentence = data.choices?.[0]?.message?.content?.trim();
+    if (sentence && sentence.length > 5 && sentence.length < 200) {
+      AI_SENTENCE_CACHE.set(key, sentence);
+      // 持久化到 store
+      const words = store.getAll();
+      const w = words.find(x => x.word === key);
+      if (w && !w.example) { w.example = sentence; saveData(loadData()); }
+      return sentence;
+    }
+  } catch (e) { console.warn('AI sentence failed:', e); }
+  finally { AI_PENDING.delete(key); }
+  return null;
 }
 
 // ================================================================
@@ -880,6 +924,12 @@ function renderStudy() {
         meaningEl.style.display = 'block';
         exampleEl.style.display = 'block';
         speak(word.word);
+        // 异步获取 AI 例句
+        if (!word.example?.trim()) {
+          generateAISentence(word.word, word.meaning).then(s => {
+            if (s) exampleEl.textContent = s;
+          });
+        }
       } else {
         revealed = false;
         meaningEl.style.display = 'none';
