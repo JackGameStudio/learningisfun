@@ -779,6 +779,18 @@ function renderHome() {
     ]));
   }
 
+  // 设置入口
+  const settings = store.getSettings();
+  const dailyLabel = { 20:'20词/天', 30:'30词/天', 40:'40词/天' }[settings.dailyNewWords] || '20词/天';
+  wrap.appendChild(el('div', {className:'text-center',style:'margin-top:var(--space-md)'}, [
+    el('a', {
+      href:'#',
+      className:'text-muted',
+      style:'font-size:0.8rem;text-decoration:underline',
+      onClick:(e)=>{e.preventDefault();navigate('settings');}
+    }, [document.createTextNode('⚙️ 学习设置：' + dailyLabel)])
+  ]));
+
   return wrap;
 }
 
@@ -1345,15 +1357,7 @@ function renderWordBank() {
   const words = store.getAll();
   const wrap = el('div', {className:'view-wordbank animate-fade-in'}, []);
   wrap.appendChild(el('h2', {className:'mb-sm'}, [document.createTextNode('📚 词库')]));
-  wrap.appendChild(el('p', {className:'text-muted mb-sm'}, [document.createTextNode(`共 ${words.length} 个单词`)]));
-  const settings = store.getSettings();
-  const dailyLabel = { 20:'20词/天', 30:'30词/天', 40:'40词/天' }[settings.dailyNewWords] || '20词/天';
-  wrap.appendChild(el('a', {
-    href:'#',
-    className:'text-muted',
-    style:'font-size:0.85rem;text-decoration:underline;margin-bottom:var(--space-md);display:inline-block',
-    onClick:(e)=>{e.preventDefault();navigate('settings');}
-  }, [document.createTextNode('⚙️ 学习设置：' + dailyLabel)]));
+  wrap.appendChild(el('p', {className:'text-muted mb-md'}, [document.createTextNode(`共 ${words.length} 个单词`)]));
 
   // AI 例句生成按钮 + 清理假句按钮 + 补全释义按钮
   const aiBtn = el('button', {className:'btn btn-secondary',style:'flex:1'}, [document.createTextNode('🤖 AI 生成例句')]);
