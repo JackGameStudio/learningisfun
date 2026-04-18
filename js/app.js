@@ -457,70 +457,58 @@ async function lookupBatch(words, onProgress) {
 // ================================================================
 // MODULE 5: sentence-gen.js
 // ================================================================
+
+// 更好的模板：更自然、更贴合10岁孩子
 const TEMPLATES = [
-  (w,m) => `I learn the word "${w}" every day.`,
-  (w,m) => `The word "${w}" means ${m || '...'}.`,
-  (w,m) => `Can you use "${w}" in a sentence?`,
-  (w,m) => `Do you know what "${w}" means?`,
-  (w,m) => `"${w}" is a useful word.`,
-  (w,m) => `I saw the word "${w}" in a book.`,
-  (w,m) => `What does "${w}" mean?`,
-  (w,m) => `"${w}" is important. Remember it!`,
-  (w,m) => `My teacher explained "${w}" to us.`,
-  (w,m) => `I wrote "${w}" in my notebook.`,
+  (w,m) => `I saw "${w}" in my storybook today.`,
+  (w,m) => `"${w}" is one of my favorite words.`,
+  (w,m) => `Mom asked me to spell "${w}".`,
+  (w,m) => `I will try to use "${w}" when I talk today.`,
+  (w,m) => `The word "${w}" is fun to say.`,
+  (w,m) => `I learned a new word: "${w}"!`,
+  (w,m) => `Can you guess what "${w}" means?`,
+  (w,m) => `I remember "${w}" from my English class.`,
+  (w,m) => `Every time I read "${w}", I smile.`,
+  (w,m) => `"${w}" — that's a cool word!`,
 ];
-const SENTENCE_CACHE = new Map();
-const AI_SENTENCE_CACHE = new Map();
-const AI_PENDING = new Set();
-const AI_CONFIG = {
-  url: 'https://integrate.api.nvidia.com/v1/chat/completions',
-  key: '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',
-  model: 'minimaxai/minimax-m2.7'
-};
 
-function generateSentence(word, meaning='', existingExample='') {
-  if (existingExample?.trim()) return existingExample.trim();
-  if (AI_SENTENCE_CACHE.has(word.toLowerCase())) return AI_SENTENCE_CACHE.get(word.toLowerCase());
-  if (SENTENCE_CACHE.has(word.toLowerCase())) return SENTENCE_CACHE.get(word.toLowerCase());
-  const s = TEMPLATES[Math.floor(Math.random() * TEMPLATES.length)](word, meaning);
-  SENTENCE_CACHE.set(word.toLowerCase(), s);
-  return s;
-}
-
-async function generateAISentence(word, meaning='') {
-  const key = word.toLowerCase();
-  if (AI_SENTENCE_CACHE.has(key)) return AI_SENTENCE_CACHE.get(key);
-  if (AI_PENDING.has(key)) return null; // 已在请求中
-  AI_PENDING.add(key);
+// Datamuse: 找真实搭配（动词/形容词/名词搭配）
+async function fetchRelatedPhrases(word) {
   try {
-    const resp = await fetch(AI_CONFIG.url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${AI_CONFIG.key}` },
-      body: JSON.stringify({
-        model: AI_CONFIG.model,
-        messages: [
-          { role: 'system', content: 'You are an English teacher. Generate ONE simple, natural English sentence using the given word. The sentence should be easy for a 10-year-old to understand. Only output the sentence, nothing else.' },
-          { role: 'user', content: meaning ? `Word: "${word}" (meaning: ${meaning})` : `Word: "${word}"` }
-        ],
-        max_tokens: 100,
-        temperature: 0.8,
-        stream: false
-      })
-    });
+    // 获取与该词相关的常见搭配词
+    const resp = await fetch(`https://api.datamuse.com/words?rel_trg=${encodeURIComponent(word)}&max=10`);
     if (!resp.ok) return null;
     const data = await resp.json();
-    const sentence = data.choices?.[0]?.message?.content?.trim();
-    if (sentence && sentence.length > 5 && sentence.length < 200) {
-      AI_SENTENCE_CACHE.set(key, sentence);
-      // 持久化到 store
-      const words = store.getAll();
-      const w = words.find(x => x.word === key);
-      if (w && !w.example) { w.example = sentence; saveData(loadData()); }
-      return sentence;
+    // 找名词搭配（datamuse返回的词和原词有关联）
+    const related = data.filter(x => /^[a-z]{3,15}$/.test(x.word) && x.word !== word.toLowerCase());
+    if (related.length > 0) {
+      const pick = related[Math.floor(Math.random() * Math.min(related.length, 5))].word;
+      return pick;
     }
-  } catch (e) { console.warn('AI sentence failed:', e); }
-  finally { AI_PENDING.delete(key); }
+  } catch {}
   return null;
+}
+
+// 用 Datamuse 搭配 + 模板生成自然句子
+async function generateSentenceSmart(word, meaning='', dictExample='') {
+  const key = word.toLowerCase();
+  // 优先用词典原生例句
+  if (dictExample?.trim() && dictExample.length > 5 && dictExample.length < 200) {
+    return dictExample.trim();
+  }
+  // Datamuse 找搭配
+  const related = await fetchRelatedPhrases(word);
+  if (related) {
+    const phrases = [
+      `I know "${related}" and "${word}" go together.`,
+      `People often say "${related} ${word}" — it's a common phrase.`,
+      `When I hear "${word}", I think of "${related}".`,
+      `The word "${word}" reminds me of "${related}".`,
+    ];
+    return phrases[Math.floor(Math.random() * phrases.length)];
+  }
+  // 最终兜底：好模板
+  return TEMPLATES[Math.floor(Math.random() * TEMPLATES.length)](word, meaning);
 }
 
 // ================================================================
@@ -807,7 +795,7 @@ function renderImport() {
           word,
           meaning: pdfMeaning || dict.meaning || '',
           phonetic: dict.phonetic || '',
-          example: generateSentence(word, pdfMeaning || dict.meaning, dict.example),
+          example: generateSentenceSmart(word, pdfMeaning || dict.meaning || '', dict.example),
           prefix: morph.prefix,
           root: morph.root,
           suffix: morph.suffix,
@@ -854,11 +842,11 @@ function renderImport() {
   const wordInput = el('input', {type:'text',id:'manual-word',className:'input',placeholder:'输入英文单词',style:'margin-bottom:var(--space-xs)'}, []);
   const meaningInput = el('input', {type:'text',id:'manual-meaning',className:'input',placeholder:'中文释义（可选）',style:'margin-bottom:var(--space-xs)'}, []);
   const addBtn = el('button', {className:'btn btn-secondary',style:'width:100%'}, [document.createTextNode('➕ 添加到词库')]);
-  addBtn.addEventListener('click', () => {
+  addBtn.addEventListener('click', async () => {
     const w = wordInput.value.trim();
     if (!w) { alert('请输入单词'); return; }
     const morph = morphologyAnalyze(w);
-    const ex = generateSentence(w, meaningInput.value.trim());
+    const ex = await generateSentenceSmart(w, meaningInput.value.trim());
     store.addWord({ word:w, meaning:meaningInput.value.trim(), example:ex, prefix:morph.prefix, root:morph.root, suffix:morph.suffix });
     wordInput.value = ''; meaningInput.value = '';
     alert(`✅ "${w}" 已添加！`);
@@ -1057,26 +1045,16 @@ function renderWordBank() {
   aiBtn.addEventListener('click', async () => {
     const templatePattern = /^(I learn|The word|Can you use|Do you know|"[^"]+" is a useful|My teacher explained|I wrote)/;
     const needsAI = words.filter(w => !w.example?.trim() || templatePattern.test(w.example));
-    if (needsAI.length === 0) { alert('所有单词已有 AI 例句 ✓'); return; }
+    if (needsAI.length === 0) { alert('所有单词已有例句 ✓'); return; }
     
     aiBtn.disabled = true; aiBtn.textContent = '⏳ 生成中...';
-    aiStatus.style.display = 'block'; 
-    aiStatus.textContent = `准备生成 ${needsAI.length} 个例句... (检查网络)`;
-    
-    // 测试 API 是否可用
-    const test = await generateAISentence('test', 'a test word');
-    if (!test) {
-      aiStatus.style.color = 'var(--color-danger)';
-      aiStatus.textContent = '❌ API 调用失败，请检查网络或 API Key';
-      aiBtn.disabled = false; aiBtn.textContent = '🤖 重试';
-      return;
-    }
-    aiStatus.textContent = `API 正常 ✓ 开始生成 ${needsAI.length} 个例句...`;
+    aiStatus.style.display = 'block';
+    aiStatus.textContent = `准备为 ${needsAI.length} 个词生成例句...`;
     
     let success = 0;
     for (const w of needsAI) {
       aiStatus.textContent = `生成中: ${success+1}/${needsAI.length} (${w.word})`;
-      const s = await generateAISentence(w.word, w.meaning);
+      const s = await generateSentenceSmart(w.word, w.meaning);
       if (s) {
         w.example = s;
         const data = loadData();
@@ -1084,11 +1062,11 @@ function renderWordBank() {
         if (idx >= 0) { data.words[idx].example = s; saveData(data); }
         success++;
       }
-      await new Promise(r => setTimeout(r, 300));
+      await new Promise(r => setTimeout(r, 150));
     }
     aiBtn.textContent = '✓ 完成！'; aiBtn.disabled = false;
     aiStatus.style.color = 'var(--color-success)';
-    aiStatus.textContent = `✅ 成功生成 ${success}/${needsAI.length} 个 AI 例句`;
+    aiStatus.textContent = `✅ 已为 ${success} 个单词生成例句`;
     setTimeout(() => render(), 1500);
   });
   wrap.appendChild(aiBtn);
