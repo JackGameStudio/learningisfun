@@ -917,6 +917,9 @@ function renderStudy() {
     const meaningEl = el('div', {className:'mt-md text-muted',style:'font-size:1.1rem;display:none'}, [document.createTextNode(word.meaning||'(暂无释义)')]);
     const exampleEl = el('div', {className:'mt-sm',style:'font-size:0.9rem;color:var(--color-text-muted);font-style:italic;display:none'}, [document.createTextNode(word.example||'')]);
 
+    // 检查是否是模板生成的例句（需要 AI 替换）
+    const isTemplateExample = word.example && /^(I learn|The word|Can you use|Do you know|"[^"]+" is a useful|My teacher explained|I wrote)/.test(word.example);
+
     let revealed = false;
     function reveal() {
       if (!revealed) {
@@ -924,8 +927,8 @@ function renderStudy() {
         meaningEl.style.display = 'block';
         exampleEl.style.display = 'block';
         speak(word.word);
-        // 异步获取 AI 例句
-        if (!word.example?.trim()) {
+        // 异步获取 AI 例句（如果没有例句，或是模板例句）
+        if (!word.example?.trim() || isTemplateExample) {
           generateAISentence(word.word, word.meaning).then(s => {
             if (s) exampleEl.textContent = s;
           });
