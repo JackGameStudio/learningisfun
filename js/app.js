@@ -900,14 +900,30 @@ function renderImport() {
 }
 
 // ===== Study View =====
+// 学习流程：复习 → 学习新词 → 测试 → 庆祝
 function renderStudy() {
   const wrap = el('div', {className:'view-study'}, []);
   const due = getDueWords();
+  const allWords = store.getAll();
 
-  wrap.appendChild(el('h2', {className:'mb-md'}, [document.createTextNode('🧠 学习')]));
-  wrap.appendChild(el('p', {className:'text-muted mb-md'}, [document.createTextNode(`今日待复习：${due.length} 个`)]));
+  // 阶段状态
+  let phase = 'review'; // review | learn | test | celebration
+  let reviewedWords = []; // 刚才复习过的词
+  let learnedWords = []; // 刚才学过的新词
+  let reviewIndex = 0;
+  let learnIndex = 0;
+  let testIndex = 0;
+  let testCorrect = 0;
+  let testQuestions = [];
 
-  if (due.length === 0) {
+  // 获取新词（没有lastReview的）
+  const newWords = allWords.filter(w => !w.lastReview).slice(0, 5);
+  const hasReview = due.length > 0;
+  const hasNewWords = newWords.length > 0;
+
+  // 如果既没复习也没新词
+  if (!hasReview && !hasNewWords) {
+    wrap.appendChild(el('h2', {className:'mb-md'}, [document.createTextNode('🧠 学习')]));
     wrap.appendChild(el('div', {className:'card',style:'text-align:center;padding:var(--space-xl)'}, [
       el('div', {style:'font-size:3rem'}, [document.createTextNode('🎉')]),
       el('h3', {className:'mt-sm'}, [document.createTextNode('今日任务已完成！')]),
@@ -917,23 +933,195 @@ function renderStudy() {
     return wrap;
   }
 
-  let queue = [...due];
-  let reviewIndex = 0;
+  // 确定起始阶段
+  phase = hasReview ? 'review' : 'learn';
 
-  function showCard() {
-    if (reviewIndex >= queue.length) {
-      wrap.innerHTML = '';
-      wrap.appendChild(el('h2', {className:'mb-md'}, [document.createTextNode('🎉 学习完成！')]));
-      wrap.appendChild(el('p', {className:'text-muted'}, [document.createTextNode(`今天复习了 ${queue.length} 个单词，继续加油！`)]));
-      wrap.appendChild(el('button', {className:'btn btn-primary mt-md',onClick:()=>navigate('home')}, [document.createTextNode('🏠 返回首页')]));
+  // ===== 庆祝动画 =====
+  function showCelebration() {
+    wrap.innerHTML = '';
+    const emojis = ['🎉','🎊','✨','⭐','🌟','💫','🏆','🎯'];
+    const particles = [];
+    for (let i = 0; i < 20; i++) {
+      const particle = el('span', {
+        style: `position:fixed;font-size:${20+Math.random()*30}px;left:${Math.random()*100}%;top:${Math.random()*100}%;animation:celebrate 1s ease-out forwards;pointer-events:none;opacity:0;z-index:1000`
+      }, [document.createTextNode(emojis[Math.floor(Math.random()*emojis.length)])]);
+      particles.push(particle);
+      document.body.appendChild(particle);
+    }
+    // 3秒后移除粒子
+    setTimeout(() => particles.forEach(p => p.remove()), 3000);
+
+    wrap.appendChild(el('div', {className:'card',style:'text-align:center;padding:var(--space-xl)'}, [
+      el('div', {style:'font-size:4rem'}, [document.createTextNode('🏆')]),
+      el('h2', {className:'mt-md',style:'color:var(--color-success)'}, [document.createTextNode('太棒了！')]),
+      el('p', {className:'mt-sm'}, [document.createTextNode(`复习 ${reviewedWords.length} 词 · 学习 ${learnedWords.length} 词 · 测试 ${testCorrect}/${testQuestions.length} 对`)]),
+      el('div', {className:'mt-md',style:'font-size:1.5rem'}, [document.createTextNode('💎 +10 积分')]),
+      el('button', {className:'btn btn-primary mt-lg',onClick:()=>navigate('home')}, [document.createTextNode('🏠 返回首页')])
+    ]));
+  }
+
+  // ===== 测试阶段 =====
+  function showTest() {
+    // 生成测试题：从复习/学习的词中出题
+    const pool = [...reviewedWords, ...learnedWords].filter(w => w && w.word && w.meaning);
+    if (pool.length < 2) {
+      // 词不够，跳过测试直接庆祝
+      showCelebration();
       return;
     }
-    const word = queue[reviewIndex];
+
+    // 生成题目：一半4选1，一半填空
+    testQuestions = [];
+    const shuffled = pool.sort(() => Math.random() - 0.5);
+    for (let i = 0; i < Math.min(10, shuffled.length); i++) {
+      const word = shuffled[i];
+      const type = i % 2 === 0 ? 'choice' : 'fill';
+      // 获取干扰项
+      const distractors = pool.filter(w => w.id !== word.id).sort(() => Math.random() - 0.5).slice(0, 3);
+      testQuestions.push({ word, type, distractors });
+    }
+
+    testIndex = 0;
+    testCorrect = 0;
+    renderTestQuestion();
+  }
+
+  function renderTestQuestion() {
+    if (testIndex >= testQuestions.length) {
+      showCelebration();
+      return;
+    }
+
+    const q = testQuestions[testIndex];
     wrap.innerHTML = '';
-    wrap.appendChild(el('h2', {className:'mb-sm'}, [document.createTextNode(`🧠 ${reviewIndex+1}/${queue.length}`)]));
+    wrap.appendChild(el('h2', {className:'mb-md'}, [document.createTextNode(`📝 测试 ${testIndex+1}/${testQuestions.length}`)]));
+
+    if (q.type === 'choice') {
+      // 4选1：给单词选中文
+      wrap.appendChild(el('div', {className:'card mb-md',style:'text-align:center'}, [
+        el('div', {style:'font-size:1.5rem;font-weight:700'}, [document.createTextNode(q.word.word)]),
+        el('button', {className:'btn btn-sm mt-sm',onClick:()=>speak(q.word.word)}, [document.createTextNode('🔊 发音')])
+      ]));
+
+      const options = [q.word, ...q.distractors].sort(() => Math.random() - 0.5);
+      const optionsWrap = el('div', {className:'grid gap-sm'}, []);
+      options.forEach(opt => {
+        optionsWrap.appendChild(el('button', {
+          className:'btn',
+          style:'text-align:left',
+          onClick:() => {
+            if (opt.id === q.word.id) {
+              testCorrect++;
+              wrap.appendChild(el('div', {className:'text-success mt-sm',style:'text-align:center'}, [document.createTextNode('✅ 正确！')]));
+            } else {
+              wrap.appendChild(el('div', {className:'text-danger mt-sm',style:'text-align:center'}, [document.createTextNode(`❌ 答案是：${q.word.meaning}`)]));
+            }
+            setTimeout(() => { testIndex++; renderTestQuestion(); }, 800);
+          }
+        }, [document.createTextNode(opt.meaning || '(无释义)')]));
+      });
+      wrap.appendChild(optionsWrap);
+    } else {
+      // 填空：给中文+词根提示，写单词
+      const morphHint = q.word.explanation || (q.word.prefix || q.word.root || q.word.suffix ? [q.word.prefix, q.word.root, q.word.suffix].filter(Boolean).join(' + ') : '');
+      wrap.appendChild(el('div', {className:'card mb-md',style:'text-align:center'}, [
+        el('div', {style:'font-size:1.1rem'}, [document.createTextNode(`中文：${q.word.meaning}`)]),
+        morphHint ? el('div', {className:'text-muted mt-sm',style:'font-size:0.9rem'}, [document.createTextNode(`词根：${morphHint}`)]) : null,
+      ].filter(Boolean)));
+
+      const inputWrap = el('div', {className:'flex gap-sm'}, []);
+      const input = el('input', {type:'text',placeholder:'输入单词',style:'flex:1;padding:var(--space-sm)',autofocus:true});
+      const submitBtn = el('button', {className:'btn btn-primary',onClick:checkFill}, [document.createTextNode('确定')]);
+      input.addEventListener('keydown', e => { if (e.key === 'Enter') checkFill(); });
+
+      function checkFill() {
+        const answer = input.value.trim().toLowerCase();
+        const correct = q.word.word.toLowerCase();
+        if (answer === correct) {
+          testCorrect++;
+          wrap.appendChild(el('div', {className:'text-success mt-sm',style:'text-align:center'}, [document.createTextNode('✅ 正确！')]));
+        } else {
+          wrap.appendChild(el('div', {className:'text-danger mt-sm',style:'text-align:center'}, [document.createTextNode(`❌ 答案是：${q.word.word}`)]));
+        }
+        setTimeout(() => { testIndex++; renderTestQuestion(); }, 800);
+      }
+
+      inputWrap.appendChild(input);
+      inputWrap.appendChild(submitBtn);
+      wrap.appendChild(inputWrap);
+    }
+  }
+
+  // ===== 学习新词阶段 =====
+  function showLearn() {
+    if (learnIndex >= newWords.length) {
+      // 学完新词，进入测试
+      if (learnedWords.length > 0) {
+        showTest();
+      } else {
+        showCelebration();
+      }
+      return;
+    }
+
+    const word = newWords[learnIndex];
+    wrap.innerHTML = '';
+    wrap.appendChild(el('h2', {className:'mb-sm'}, [document.createTextNode(`📚 学习新词 ${learnIndex+1}/${newWords.length}`)]));
+
+    const card = el('div', {className:'card',style:'text-align:center;padding:var(--space-lg)'}, []);
+    // 单词
+    card.appendChild(el('div', {style:'font-size:2rem;font-weight:700'}, [document.createTextNode(word.word)]));
+    // 发音按钮
+    card.appendChild(el('button', {className:'btn btn-sm mt-sm',onClick:()=>speak(word.word)}, [document.createTextNode('🔊 发音')]));
+    // 音标
+    if (word.phonetic) card.appendChild(el('div', {className:'text-muted mt-sm'}, [document.createTextNode(word.phonetic)]));
+    // 词根拆解
+    const morphText = word.explanation || (word.prefix || word.root || word.suffix ? [word.prefix, word.root, word.suffix].filter(Boolean).join(' + ') : '');
+    if (morphText) card.appendChild(el('div', {className:'mt-md',style:'color:var(--color-accent)'}, [document.createTextNode(`词根：${morphText}`)]));
+    // 释义
+    card.appendChild(el('div', {className:'mt-md',style:'font-size:1.2rem'}, [document.createTextNode(word.meaning || '(暂无释义)')]));
+    // 例句
+    if (word.example) card.appendChild(el('div', {className:'mt-sm text-muted',style:'font-style:italic'}, [document.createTextNode(String(word.example))]));
+
+    wrap.appendChild(card);
+
+    // 确认按钮
+    wrap.appendChild(el('button', {className:'btn btn-primary mt-lg',style:'width:100%',onClick:()=>{
+      // 标记已学习（设为盒子1，下次复习）
+      const today = new Date().toISOString().slice(0,10);
+      store.updateWord(word.id, { lastReview: today, box: 1, timesReviewed: 1 });
+      learnedWords.push(word);
+      learnIndex++;
+      showLearn();
+    }}, [document.createTextNode('✅ 我学会了')]));
+
+    // 跳过按钮
+    wrap.appendChild(el('button', {className:'btn mt-sm',style:'width:100%',onClick:()=>{
+      learnIndex++;
+      showLearn();
+    }}, [document.createTextNode('⏭️ 跳过')]));
+  }
+
+  // ===== 复习阶段 =====
+  function showReview() {
+    if (reviewIndex >= due.length) {
+      // 复习结束，进入学习新词
+      if (newWords.length > 0) {
+        phase = 'learn';
+        showLearn();
+      } else if (reviewedWords.length > 0) {
+        showTest();
+      } else {
+        showCelebration();
+      }
+      return;
+    }
+
+    const word = due[reviewIndex];
+    wrap.innerHTML = '';
+    wrap.appendChild(el('h2', {className:'mb-sm'}, [document.createTextNode(`🔄 复习 ${reviewIndex+1}/${due.length}`)]));
     wrap.appendChild(el('div', {className:'text-muted mb-md',style:'font-size:0.85rem'}, [
       document.createTextNode(`盒子：${BOX_LABELS[word.box]||'新词'} | `),
-      document.createTextNode(`已复习：${word.timesReviewed||0}次 | `),
       document.createTextNode(`正确率：${word.timesReviewed?Math.round((word.timesCorrect||0)/(word.timesReviewed)*100):0}%`)
     ]));
 
@@ -941,9 +1129,8 @@ function renderStudy() {
     const wordEl = el('div', {style:'font-size:2rem;font-weight:700'}, [document.createTextNode(word.word)]);
     const phoneticEl = el('div', {className:'text-muted',style:'font-size:0.9rem'}, [document.createTextNode(word.phonetic||'')]);
     const morphEl = el('div', {style:'font-size:0.8rem;color:var(--color-accent)',className:'mt-sm'}, []);
-    if (word.prefix||word.root||word.suffix) morphEl.textContent = [word.prefix,word.root,word.suffix].filter(Boolean).join(' + ');
-    // 如果有词根拆分含义显示，优先用
     if (word.explanation) morphEl.textContent = word.explanation;
+    else if (word.prefix||word.root||word.suffix) morphEl.textContent = [word.prefix,word.root,word.suffix].filter(Boolean).join(' + ');
     const meaningEl = el('div', {className:'mt-md text-muted',style:'font-size:1.1rem;display:none'}, [document.createTextNode(word.meaning||'(暂无释义)')]);
     const exampleEl = el('div', {className:'mt-sm',style:'font-size:0.9rem;color:var(--color-text-muted);font-style:italic;display:none'}, [document.createTextNode(String(word.example||''))]);
 
@@ -969,27 +1156,37 @@ function renderStudy() {
     card.appendChild(exampleEl);
     wrap.appendChild(card);
 
-    // 提示
-    wrap.appendChild(el('p', {className:'text-muted text-center',style:'font-size:0.8rem;margin:var(--space-sm) 0'}, [document.createTextNode('💡 点击卡片显示释义，🔊 正在自动朗读')]));
+    wrap.appendChild(el('p', {className:'text-muted text-center',style:'font-size:0.8rem;margin:var(--space-sm) 0'}, [document.createTextNode('💡 点击卡片显示释义')]));
 
-    // 按钮
     const btnWrap = el('div', {className:'mt-md'}, []);
     const btnStyle = {flex:1, padding:'var(--space-sm) var(--space-xs)',fontSize:'0.9rem'};
-    btnWrap.appendChild(el('button', {className:'btn btn-danger',style:btnStyle,onClick:()=>answer(word,RATING.WRONG)}, [document.createTextNode('❌ 不会')]));
-    btnWrap.appendChild(el('button', {className:'btn btn-warning',style:btnStyle,onClick:()=>answer(word,RATING.ALMOST)}, [document.createTextNode('🤔 有点忘')]));
-    btnWrap.appendChild(el('button', {className:'btn btn-success',style:btnStyle,onClick:()=>answer(word,RATING.CORRECT)}, [document.createTextNode('✅ 记住了')]));
+    btnWrap.appendChild(el('button', {className:'btn btn-danger',style:btnStyle,onClick:()=>answerReview(word,RATING.WRONG)}, [document.createTextNode('❌ 不会')]));
+    btnWrap.appendChild(el('button', {className:'btn btn-warning',style:btnStyle,onClick:()=>answerReview(word,RATING.ALMOST)}, [document.createTextNode('🤔 有点忘')]));
+    btnWrap.appendChild(el('button', {className:'btn btn-success',style:btnStyle,onClick:()=>answerReview(word,RATING.CORRECT)}, [document.createTextNode('✅ 记住了')]));
     wrap.appendChild(btnWrap);
 
-    function answer(w, rating) {
+    function answerReview(w, rating) {
       const updates = computeNextReview(w, rating);
       store.updateWord(w.id, updates);
+      reviewedWords.push(w);
       reviewIndex++;
-      showCard();
+      showReview();
     }
   }
 
-  showCard();
+  // 开始
+  if (phase === 'review') showReview();
+  else if (phase === 'learn') showLearn();
+
   return wrap;
+}
+
+// 庆祝动画CSS（动态注入）
+if (!document.getElementById('celebrate-style')) {
+  const style = document.createElement('style');
+  style.id = 'celebrate-style';
+  style.textContent = `@keyframes celebrate{0%{opacity:1;transform:scale(0) rotate(0deg)}50%{opacity:1;transform:scale(1.2) rotate(180deg)}100%{opacity:0;transform:scale(0.5) rotate(360deg) translateY(-100px)}}`;
+  document.head.appendChild(style);
 }
 
 // ===== Island View =====
