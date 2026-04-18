@@ -1043,8 +1043,16 @@ function renderWordBank() {
   const aiStatus = el('p', {className:'text-muted text-center',style:'font-size:0.85rem;margin-top:8px;display:none'}, []);
   
   aiBtn.addEventListener('click', async () => {
-    const templatePattern = /^(I learn|The word|Can you use|Do you know|"[^"]+" is a useful|My teacher explained|I wrote)/;
-    const needsAI = words.filter(w => !w.example?.trim() || templatePattern.test(w.example));
+    // 匹配所有已知模板句子
+    const knownTemplates = [
+      'I learn', 'The word', 'Can you use', 'Do you know',
+      '"', 'My teacher explained', 'I wrote', 'I saw',
+      'Mom asked', 'I will try', 'I know', 'Every time',
+      'Can you guess', 'I remember', 'People often', 'When I hear',
+      'The word "'
+    ];
+    const isTemplate = ex => knownTemplates.some(t => ex.startsWith(t));
+    const needsAI = words.filter(w => !w.example?.trim() || isTemplate(w.example));
     if (needsAI.length === 0) { alert('所有单词已有例句 ✓'); return; }
     
     aiBtn.disabled = true; aiBtn.textContent = '⏳ 生成中...';
