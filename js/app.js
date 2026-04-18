@@ -1134,7 +1134,7 @@ function renderStudy() {
       ].filter(Boolean)));
 
       const inputWrap = el('div', {className:'flex gap-sm'}, []);
-      const input = el('input', {type:'text',placeholder:'输入单词',style:'flex:1;padding:var(--space-sm)',autofocus:true});
+      const input = el('input', {type:'text',placeholder:'输入单词',style:'flex:1;padding:var(--space-sm);border:1px solid var(--color-primary);border-radius:var(--radius);font-size:1rem',autofocus:true});
       const submitBtn = el('button', {className:'btn btn-primary',onClick:checkFill}, [document.createTextNode('确定')]);
       input.addEventListener('keydown', e => { if (e.key === 'Enter') checkFill(); });
 
