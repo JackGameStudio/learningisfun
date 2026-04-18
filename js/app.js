@@ -802,12 +802,15 @@ function renderHome() {
   ]);
   wrap.appendChild(dueCard);
 
+  // 调试：直接显示 totalWords 值
+  console.log('[DEBUG] totalWords =', totalWords, ', disabled =', totalWords === 0);
+
   const studyBtn = el('button', {
     className:'btn btn-primary btn-lg mb-md',
     style:'width:100%',
-    onClick:()=>navigate('study'),
-    disabled: totalWords === 0
-  }, [document.createTextNode('🧠 开始学习')]);
+    onClick:()=>{ console.log('[DEBUG] studyBtn clicked!'); navigate('study'); },
+    disabled: false  // 临时强制启用，排查问题
+  }, [document.createTextNode(`🧠 开始学习 (${totalWords}词)`)]);
   wrap.appendChild(studyBtn);
 
   if (totalWords === 0) {
