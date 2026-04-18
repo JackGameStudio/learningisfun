@@ -1111,7 +1111,7 @@ function renderStudy() {
       const optionsWrap = el('div', {className:'grid gap-sm'}, []);
       options.forEach(opt => {
         optionsWrap.appendChild(el('button', {
-          className:'btn',
+          className:'btn btn-secondary',  // 加上背景色
           style:'text-align:left',
           onClick:() => {
             if (opt.id === q.word.id) {
