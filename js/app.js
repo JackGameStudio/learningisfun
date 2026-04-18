@@ -473,42 +473,80 @@ const TEMPLATES = [
 ];
 
 // Datamuse: 找真实搭配（动词/形容词/名词搭配）
-async function fetchRelatedPhrases(word) {
+async function fetchCollocations(word) {
+  // 用 Datamuse 多种关系找真正的搭配
   try {
-    // 获取与该词相关的常见搭配词
-    const resp = await fetch(`https://api.datamuse.com/words?rel_trg=${encodeURIComponent(word)}&max=10`);
-    if (!resp.ok) return null;
-    const data = await resp.json();
-    // 找名词搭配（datamuse返回的词和原词有关联）
-    const related = data.filter(x => /^[a-z]{3,15}$/.test(x.word) && x.word !== word.toLowerCase());
-    if (related.length > 0) {
-      const pick = related[Math.floor(Math.random() * Math.min(related.length, 5))].word;
-      return pick;
-    }
+    const w = encodeURIComponent(word.toLowerCase());
+    // 同时查：前面常跟的词(lc)、后面常跟的词(rc)、同义 adjective修饰等
+    const [beforeRes, afterRes, adjRes] = await Promise.allSettled([
+      fetch(`https://api.datamuse.com/words?lc=${w}&max=8`),   // word 前面的词
+      fetch(`https://api.datamuse.com/words?rc=${w}&max=8`),   // word 后面的词
+      fetch(`https://api.datamuse.com/words?rel_jjb=${w}&max=5`), // 形容词修饰
+    ]);
+    const wordsBefore = (beforeRes.status==='fulfilled' && beforeRes.value.ok) ? (await beforeRes.value.json()) : [];
+    const wordsAfter = (afterRes.status==='fulfilled' && afterRes.value.ok) ? (await afterRes.value.json()) : [];
+    const adjectives = (adjRes.status==='fulfilled' && adjRes.value.ok) ? (await adjRes.value.json()) : [];
+
+    return {
+      before: wordsBefore.filter(x => /^[a-z]{2,15}$/.test(x.word)).map(x => x.word),
+      after: wordsAfter.filter(x => /^[a-z]{2,15}$/.test(x.word)).map(x => x.word),
+      adjectives: adjectives.filter(x => /^[a-z]{2,15}$/.test(x.word)).map(x => x.word),
+    };
   } catch {}
-  return null;
+  return { before: [], after: [], adjectives: [] };
 }
 
-// 用 Datamuse 搭配 + 模板生成自然句子
+// 用搭配 + 自然模板生成例句
 async function generateSentenceSmart(word, meaning='', dictExample='') {
-  const key = word.toLowerCase();
+  const w = word.toLowerCase();
   // 优先用词典原生例句
   if (dictExample?.trim() && dictExample.length > 5 && dictExample.length < 200) {
     return dictExample.trim();
   }
+
+  // 尝试从 Free Dictionary API 获取真实例句
+  try {
+    const resp = await fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(w)}`);
+    if (resp.ok) {
+      const data = await resp.json();
+      const examples = [];
+      for (const entry of (data||[])) {
+        for (const meaning of (entry.meanings||[])) {
+          for (const def of (meaning.definitions||[])) {
+            if (def.example?.trim() && def.example.length > 10 && def.example.length < 150) {
+              examples.push(def.example.trim());
+            }
+          }
+        }
+      }
+      if (examples.length > 0) return examples[Math.floor(Math.random() * examples.length)];
+    }
+  } catch {}
+
   // Datamuse 找搭配
-  const related = await fetchRelatedPhrases(word);
-  if (related) {
-    const phrases = [
-      `I know "${related}" and "${word}" go together.`,
-      `People often say "${related} ${word}" — it's a common phrase.`,
-      `When I hear "${word}", I think of "${related}".`,
-      `The word "${word}" reminds me of "${related}".`,
-    ];
-    return phrases[Math.floor(Math.random() * phrases.length)];
+  const coll = await fetchCollocations(w);
+
+  // 用搭配构造自然的句子
+  if (coll.adjectives.length > 0) {
+    const adj = coll.adjectives[Math.floor(Math.random() * Math.min(coll.adjectives.length, 3))];
+    return `The ${adj} ${word} ${meaning ? '(' + meaning + ')' : ''} caught my attention.`;
   }
-  // 最终兜底：好模板
-  return TEMPLATES[Math.floor(Math.random() * TEMPLATES.length)](word, meaning);
+  if (coll.before.length > 0) {
+    const b = coll.before[Math.floor(Math.random() * Math.min(coll.before.length, 3))];
+    return `We learned about "${b} ${word}"${meaning ? ' — it means ' + meaning : ''} in class today.`;
+  }
+  if (coll.after.length > 0) {
+    const a = coll.after[Math.floor(Math.random() * Math.min(coll.after.length, 3))];
+    return `My teacher said "${word} ${a}"${meaning ? ' (' + meaning + ')' : ''} is important to remember.`;
+  }
+
+  // 最终兜底：简单好用的模板
+  const fallbacks = [
+    meaning ? `${word} means "${meaning}". I'll try to use it in my writing.` : `I learned the word "${word}" today.`,
+    meaning ? `"${word}" — ${meaning}. That's a useful word!` : `"${word}" is a new word I want to remember.`,
+    meaning ? `Can you use "${word}" (${meaning}) in a sentence?` : `I found the word "${word}" in my reading.`,
+  ];
+  return fallbacks[Math.floor(Math.random() * fallbacks.length)];
 }
 
 // ================================================================
