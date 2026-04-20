@@ -288,7 +288,8 @@ function initTestData() {
   ];
   const today = new Date().toISOString().split('T')[0];
   testWords.forEach(w => {
-    store.addWord({ word: w.word, meaning: w.meaning, source: 'test', createdAt: today });
+    const morph = morphologyAnalyze(w.word);
+    store.addWord({ word: w.word, meaning: w.meaning, prefix: morph.prefix, root: morph.root, source: 'test', createdAt: today });
   });
   console.log(`[Init] 自动填充 ${testWords.length} 个测试词`);
 }
