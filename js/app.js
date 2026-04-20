@@ -2032,7 +2032,38 @@ function renderStudy() {
     const morphText = word.explanation || (word.prefix || word.root || word.suffix ? [word.prefix, word.root, word.suffix].filter(Boolean).join(' + ') : '');
     if (morphText) card.appendChild(el('div', {className:'mt-md',style:'color:var(--color-accent)'}, [document.createTextNode(morphText)]));
     card.appendChild(el('div', {className:'mt-md',style:'font-size:1.2rem'}, [document.createTextNode(word.meaning || '(暂无释义)')]));
-    if (word.example) card.appendChild(el('div', {className:'mt-sm text-muted',style:'font-style:italic'}, [document.createTextNode(String(word.example))]));
+
+    // 例句区域（可动态更新）
+    const exampleEl = el('div', {className:'mt-sm text-muted',style:'font-style:italic;display:word.example?"block":"none"'}, [document.createTextNode(String(word.example||''))]);
+    card.appendChild(exampleEl);
+
+    // 造句按钮
+    const makeSentenceBtn = el('button', {className:'btn btn-secondary btn-sm',style:'margin-top:8px'}, [document.createTextNode('📝 造句')]);
+    makeSentenceBtn.addEventListener('click', async () => {
+      makeSentenceBtn.disabled = true;
+      makeSentenceBtn.textContent = '⏳ 生成中...';
+      try {
+        const sentence = await generateSentenceSmart(word.word, word.meaning);
+        if (sentence) {
+          exampleEl.textContent = sentence;
+          exampleEl.style.display = 'block';
+          // 保存例句
+          const updatedWord = store.getWord(word.id);
+          if (updatedWord) {
+            store.updateWord(word.id, { example: sentence });
+          }
+        } else {
+          exampleEl.textContent = '(暂无例句)';
+          exampleEl.style.display = 'block';
+        }
+      } catch (e) {
+        exampleEl.textContent = '(生成失败)';
+        exampleEl.style.display = 'block';
+      }
+      makeSentenceBtn.disabled = false;
+      makeSentenceBtn.textContent = '📝 造句';
+    });
+    card.appendChild(makeSentenceBtn);
     wrap.appendChild(card);
 
     // 已达60词上限
@@ -2132,12 +2163,38 @@ function renderStudy() {
     const meaningEl = el('div', {className:'mt-md text-muted',style:'font-size:1.1rem;display:none'}, [document.createTextNode(word.meaning||'(暂无释义)')]);
     const exampleEl = el('div', {className:'mt-sm',style:'font-size:0.9rem;color:var(--color-text-muted);font-style:italic;display:none'}, [document.createTextNode(String(word.example||''))]);
 
+    // 复习阶段的造句按钮（隐藏，reveal后显示）
+    const makeSentenceBtn = el('button', {className:'btn btn-secondary btn-sm',style:'margin-top:8px;display:none'}, [document.createTextNode('📝 造句')]);
+    makeSentenceBtn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      makeSentenceBtn.disabled = true;
+      makeSentenceBtn.textContent = '⏳ 生成中...';
+      try {
+        const sentence = await generateSentenceSmart(word.word, word.meaning);
+        if (sentence) {
+          exampleEl.textContent = sentence;
+          exampleEl.style.display = 'block';
+          // 保存例句
+          store.updateWord(word.id, { example: sentence });
+        } else {
+          exampleEl.textContent = '(暂无例句)';
+          exampleEl.style.display = 'block';
+        }
+      } catch (e) {
+        exampleEl.textContent = '(生成失败)';
+        exampleEl.style.display = 'block';
+      }
+      makeSentenceBtn.disabled = false;
+      makeSentenceBtn.textContent = '📝 造句';
+    });
+
     let revealed = false;
     function reveal() {
       if (!revealed) {
         revealed = true;
         meaningEl.style.display = 'block';
         exampleEl.style.display = word.example ? 'block' : 'none';
+        makeSentenceBtn.style.display = 'inline-block';
         card.style.background = 'var(--color-surface)';
       }
     }
@@ -2147,6 +2204,7 @@ function renderStudy() {
     card.appendChild(morphEl);
     card.appendChild(meaningEl);
     card.appendChild(exampleEl);
+    card.appendChild(makeSentenceBtn);
     wrap.appendChild(card);
 
     const btnWrap = el('div', {className:'grid gap-sm mt-lg'}, []);
