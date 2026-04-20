@@ -1369,8 +1369,9 @@ async function generateSentenceSmart(word, meaning='', dictExample='') {
     }
     lastAPICall = Date.now();
 
-    // Tatoeba 搜索 API：英文例句
-    const resp = await fetch(`https://tatoeba.org/en/api_v0/search?query=${encodeURIComponent(w)}&from=eng&to=und`);
+    // Tatoeba 搜索 API（通过 CORS proxy）
+    const tatoebaUrl = `https://tatoeba.org/en/api_v0/search?query=${encodeURIComponent(w)}&from=eng&to=und`;
+    const resp = await fetch(`https://corsproxy.io/?${encodeURIComponent(tatoebaUrl)}`);
     if (resp.ok) {
       const data = await resp.json();
       if (data.results && data.results.length > 0) {
