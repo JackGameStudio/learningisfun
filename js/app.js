@@ -117,6 +117,78 @@ const store = {
   clearAll() { saveData({ version: 1, words: [], meta: {} }); }
 };
 
+// 初始化：首次打开自动填充60个测试词
+function initTestData() {
+  if (store.getAll().length > 0) return; // 已有数据不覆盖
+  const testWords = [
+    { word: 'abandon', meaning: '放弃' },
+    { word: 'ability', meaning: '能力' },
+    { word: 'able', meaning: '能够的' },
+    { word: 'about', meaning: '关于' },
+    { word: 'above', meaning: '在...上面' },
+    { word: 'abroad', meaning: '在国外' },
+    { word: 'accept', meaning: '接受' },
+    { word: 'accident', meaning: '事故' },
+    { word: 'according', meaning: '根据' },
+    { word: 'account', meaning: '账户' },
+    { word: 'achieve', meaning: '实现' },
+    { word: 'across', meaning: '穿过' },
+    { word: 'act', meaning: '行动' },
+    { word: 'action', meaning: '行动' },
+    { word: 'active', meaning: '积极的' },
+    { word: 'activity', meaning: '活动' },
+    { word: 'actual', meaning: '实际的' },
+    { word: 'actually', meaning: '实际上' },
+    { word: 'add', meaning: '增加' },
+    { word: 'address', meaning: '地址' },
+    { word: 'advantage', meaning: '优势' },
+    { word: 'adventure', meaning: '冒险' },
+    { word: 'advertise', meaning: '做广告' },
+    { word: 'advice', meaning: '建议' },
+    { word: 'afford', meaning: '负担得起' },
+    { word: 'afraid', meaning: '害怕的' },
+    { word: 'after', meaning: '在...之后' },
+    { word: 'afternoon', meaning: '下午' },
+    { word: 'again', meaning: '再一次' },
+    { word: 'against', meaning: '反对' },
+    { word: 'age', meaning: '年龄' },
+    { word: 'agent', meaning: '代理人' },
+    { word: 'ago', meaning: '以前' },
+    { word: 'agree', meaning: '同意' },
+    { word: 'ahead', meaning: '在前面' },
+    { word: 'air', meaning: '空气' },
+    { word: 'airline', meaning: '航空公司' },
+    { word: 'airport', meaning: '机场' },
+    { word: 'alarm', meaning: '警报' },
+    { word: 'album', meaning: '专辑' },
+    { word: 'alien', meaning: '外星人' },
+    { word: 'allow', meaning: '允许' },
+    { word: 'almost', meaning: '几乎' },
+    { word: 'alone', meaning: '独自' },
+    { word: 'along', meaning: '沿着' },
+    { word: 'already', meaning: '已经' },
+    { word: 'also', meaning: '也' },
+    { word: 'although', meaning: '虽然' },
+    { word: 'always', meaning: '总是' },
+    { word: 'amazing', meaning: '令人惊奇的' },
+    { word: 'among', meaning: '在...之中' },
+    { word: 'amount', meaning: '数量' },
+    { word: 'ancient', meaning: '古代的' },
+    { word: 'and', meaning: '和' },
+    { word: 'angel', meaning: '天使' },
+    { word: 'anger', meaning: '愤怒' },
+    { word: 'angle', meaning: '角度' },
+    { word: 'angry', meaning: '生气的' },
+    { word: 'animal', meaning: '动物' },
+    { word: 'announce', meaning: '宣布' },
+  ];
+  const today = new Date().toISOString().split('T')[0];
+  testWords.forEach(w => {
+    store.addWord({ word: w.word, meaning: w.meaning, source: 'test', createdAt: today });
+  });
+  console.log(`[Init] 自动填充 ${testWords.length} 个测试词`);
+}
+
 // ================================================================
 // MODULE 2: pdf-extractor.js
 // ================================================================
@@ -1587,5 +1659,8 @@ if (location.hash === '#reset') {
   location.hash = '';
   location.reload();
 }
+
+// 初始化测试数据
+initTestData();
 
 document.addEventListener('DOMContentLoaded', render);
