@@ -6,7 +6,7 @@
 // ================================================================
 // MODULE 1: vocabulary-store.js
 // ================================================================
-const STORE_KEY = 'lif_v1';
+let STORE_KEY = 'lif_v1'; // 会被 setCurrentUser 动态覆盖
 
 function loadData() {
   try {
@@ -18,6 +18,110 @@ function loadData() {
 
 function saveData(data) {
   try { localStorage.setItem(STORE_KEY, JSON.stringify(data)); } catch {}
+}
+
+// ================================================================
+// User Management (多用户 + 4位密码保护)
+// ================================================================
+const USERS_KEY = 'lif_users';
+
+function getUsers() {
+  try { return JSON.parse(localStorage.getItem(USERS_KEY)) || {}; } catch { return {}; }
+}
+
+function saveUsers(users) {
+  try { localStorage.setItem(USERS_KEY, JSON.stringify(users)); } catch {}
+}
+
+let currentUser = null; // { name }
+
+function setCurrentUser(name) {
+  currentUser = { name };
+  STORE_KEY = 'lif_data_' + name.toLowerCase().replace(/[^a-z0-9\u4e00-\u9fff]/g, '_');
+}
+
+function getCurrentUser() {
+  if (currentUser) return currentUser.name;
+  try { return localStorage.getItem('lif_current_user') || null; } catch { return null; }
+}
+
+function renderLogin() {
+  const app = document.getElementById('app');
+  app.innerHTML = '';
+
+  const wrap = el('div', {className:'view-login animate-fade-in',style:'max-width:380px;margin:60px auto;padding:0 var(--space-md)'}, []);
+
+  wrap.appendChild(el('div', {style:'text-align:center;margin-bottom:var(--space-xl)'}, [
+    el('div', {style:'font-size:3rem'}, [document.createTextNode('🏝️')]),
+    el('h1', {style:'margin:var(--space-sm) 0'}, [document.createTextNode('LearningIsFun')]),
+    el('p', {className:'text-muted'}, [document.createTextNode('每天10分钟，轻松背单词')])
+  ]));
+
+  const nameInput = el('input', {
+    className:'form-input mb-md',
+    type:'text',
+    placeholder:'输入你的名字',
+    maxLength:20,
+    autocomplete:'off'
+  }, []);
+
+  const pinRow = el('div', {className:'mb-md'}, [
+    el('label', {className:'text-muted',style:'font-size:0.85rem'}, [document.createTextNode('4位密码（保护你的进度）')]),
+    el('input', {
+      className:'form-input mt-xs',
+      type:'password',
+      placeholder:'设4位数字密码',
+      maxLength:4,
+      inputmode:'numeric',
+      pattern:'[0-9]*',
+      autocomplete:'off'
+    }, [])
+  ]);
+
+  const hint = el('div', {className:'text-muted text-center',style:'font-size:0.85rem;min-height:20px;margin-bottom:var(--space-sm)'}, []);
+
+  const submitBtn = el('button', {
+    className:'btn btn-primary btn-lg',
+    style:'width:100%',
+    onClick:() => {
+      const name = nameInput.value.trim();
+      const pin = pinRow.querySelector('input').value.trim();
+      if (!name) { hint.textContent = '请输入名字'; hint.style.color = 'var(--color-danger)'; return; }
+      if (!/^\d{4}$/.test(pin)) { hint.textContent = '密码必须是4位数字'; hint.style.color = 'var(--color-danger)'; return; }
+      const users = getUsers();
+      if (users[name]) {
+        // 已有用户，验证密码
+        if (users[name] !== pin) { hint.textContent = '密码错误'; hint.style.color = 'var(--color-danger)'; return; }
+      } else {
+        // 新用户，注册
+        users[name] = pin;
+        saveUsers(users);
+      }
+      setCurrentUser(name);
+      localStorage.setItem('lif_current_user', name);
+      initTestData();
+      render();
+    }
+  }, [document.createTextNode('进入 ➜')]);
+
+  wrap.appendChild(nameInput);
+  wrap.appendChild(pinRow);
+  wrap.appendChild(hint);
+  wrap.appendChild(submitBtn);
+
+  // 换用户提示
+  const existing = getUsers();
+  const names = Object.keys(existing);
+  if (names.length > 0) {
+    wrap.appendChild(el('div', {className:'text-muted text-center mt-md',style:'font-size:0.8rem'}, [
+      document.createTextNode(`已有 ${names.length} 位同学在学习`)
+    ]));
+  }
+
+  app.appendChild(wrap);
+
+  // 自动聚焦
+  setTimeout(() => nameInput.focus(), 100);
 }
 
 function uid() {
@@ -837,6 +941,15 @@ function renderNav() {
     ]);
     nav.appendChild(btn);
   }
+  // 切换用户按钮
+  nav.appendChild(el('button', {className:'nav-btn', onClick:()=>{
+    currentUser = null;
+    localStorage.removeItem('lif_current_user');
+    renderLogin();
+  }}, [
+    el('span', {className:'nav-icon'}, [document.createTextNode('🔄')]),
+    el('span', {className:'nav-label'}, [document.createTextNode(currentUser ? currentUser.substring(0,4) : '切换')])
+  ]));
   return nav;
 }
 
@@ -855,7 +968,7 @@ function renderHome() {
 
   wrap.appendChild(el('div', {style:'text-align:center;margin-bottom:var(--space-lg)'}, [
     el('h1', {}, [document.createTextNode('🏝️ LearningIsFun')]),
-    el('p', {className:'text-muted',style:'margin-top:var(--space-xs)'}, [document.createTextNode('每天10分钟，轻松背单词')])
+    el('p', {className:'text-muted',style:'margin-top:var(--space-xs)'}, [document.createTextNode(currentUser ? `👋 ${currentUser}，每天10分钟，轻松背单词` : '每天10分钟，轻松背单词')])
   ]));
 
   wrap.appendChild(el('div', {className:'card mb-md'}, [
@@ -1755,7 +1868,14 @@ if (location.hash === '#reset') {
   location.reload();
 }
 
-// 初始化测试数据
-initTestData();
-
-document.addEventListener('DOMContentLoaded', render);
+// 初始化：检查用户登录状态
+document.addEventListener('DOMContentLoaded', () => {
+  const savedUser = localStorage.getItem('lif_current_user');
+  if (savedUser) {
+    setCurrentUser(savedUser);
+    initTestData();
+    render();
+  } else {
+    renderLogin();
+  }
+});

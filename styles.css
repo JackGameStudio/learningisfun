@@ -133,6 +133,7 @@ p { color: var(--color-text-muted); font-size: 0.875rem; }
 
 /* ===== Inputs ===== */
 input[type="text"],
+input[type="password"],
 input[type="search"],
 input[type="file"],
 textarea,
