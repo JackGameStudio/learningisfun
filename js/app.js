@@ -1162,10 +1162,12 @@ function renderStudy() {
     }
     testQuestions = [];
     const shuffled = pool.sort(() => Math.random() - 0.5);
+    const allWords = store.getAll();
     for (let i = 0; i < Math.min(10, shuffled.length); i++) {
       const word = shuffled[i];
+      const type = i % 2 === 0 ? 'choice' : 'spell';
       const distractors = pool.filter(w => w.id !== word.id).sort(() => Math.random() - 0.5).slice(0, 3);
-      testQuestions.push({ word, distractors });
+      testQuestions.push({ word, type, distractors });
     }
     testIndex = 0;
     testCorrect = 0;
@@ -1180,28 +1182,121 @@ function renderStudy() {
     const q = testQuestions[testIndex];
     wrap.innerHTML = '';
     wrap.appendChild(el('h2', {className:'mb-md'}, [document.createTextNode(`📝 测试 ${testIndex+1}/${testQuestions.length}`)]));
-    wrap.appendChild(el('div', {className:'card mb-md',style:'text-align:center'}, [
-      el('div', {style:'font-size:1.5rem;font-weight:700'}, [document.createTextNode(q.word.word)]),
-      el('button', {className:'btn btn-sm mt-sm',onClick:()=>speak(q.word.word)}, [document.createTextNode('🔊 发音')])
-    ]));
-    const options = [q.word, ...q.distractors].sort(() => Math.random() - 0.5);
-    const optionsWrap = el('div', {className:'grid gap-sm'}, []);
-    options.forEach(opt => {
-      optionsWrap.appendChild(el('button', {
-        className:'btn btn-secondary',
-        style:'text-align:left',
-        onClick:() => {
-          if (opt.id === q.word.id) {
-            testCorrect++;
-            wrap.appendChild(el('div', {className:'text-success mt-sm',style:'text-align:center'}, [document.createTextNode('✅ 正确！')]));
-          } else {
-            wrap.appendChild(el('div', {className:'text-danger mt-sm',style:'text-align:center'}, [document.createTextNode(`❌ 答案是：${q.word.meaning}`)]));
+
+    if (q.type === 'choice') {
+      // 4选1：给单词选中文
+      wrap.appendChild(el('div', {className:'card mb-md',style:'text-align:center'}, [
+        el('div', {style:'font-size:1.5rem;font-weight:700'}, [document.createTextNode(q.word.word)]),
+        el('button', {className:'btn btn-sm mt-sm',onClick:()=>speak(q.word.word)}, [document.createTextNode('🔊 发音')])
+      ]));
+      const options = [q.word, ...q.distractors].sort(() => Math.random() - 0.5);
+      const optionsWrap = el('div', {className:'grid gap-sm'}, []);
+      options.forEach(opt => {
+        optionsWrap.appendChild(el('button', {
+          className:'btn btn-secondary',
+          style:'text-align:left',
+          onClick:() => {
+            if (opt.id === q.word.id) {
+              testCorrect++;
+              wrap.appendChild(el('div', {className:'text-success mt-sm',style:'text-align:center'}, [document.createTextNode('✅ 正确！')]));
+            } else {
+              wrap.appendChild(el('div', {className:'text-danger mt-sm',style:'text-align:center'}, [document.createTextNode(`❌ 答案是：${q.word.meaning}`)]));
+            }
+            setTimeout(() => { testIndex++; renderTestQuestion(); }, 800);
           }
-          setTimeout(() => { testIndex++; renderTestQuestion(); }, 800);
+        }, [document.createTextNode(opt.meaning || '(无释义)')]));
+      });
+      wrap.appendChild(optionsWrap);
+
+    } else {
+      // 拼写题：给中文+发音，点击字母排列成单词
+      const target = q.word.word.toLowerCase();
+      const letters = target.split('').sort(() => Math.random() - 0.5);
+      let answer = []; // 已选字母
+      let pool = [...letters]; // 待选字母
+
+      wrap.appendChild(el('div', {className:'card mb-md',style:'text-align:center'}, [
+        el('div', {style:'font-size:1.2rem'}, [document.createTextNode(`中文：${q.word.meaning}`)]),
+        el('button', {className:'btn btn-sm mt-sm',onClick:()=>speak(q.word.word)}, [document.createTextNode('🔊 发音')]),
+        el('div', {className:'text-muted mt-sm',style:'font-size:0.85rem'}, [document.createTextNode(`(${target.length}个字母)`)])
+      ]));
+
+      // 答案区
+      const answerWrap = el('div', {className:'flex gap-sm mb-md',style:'justify-content:center;flex-wrap:wrap;min-height:48px'}, []);
+      function renderAnswer() {
+        answerWrap.innerHTML = '';
+        if (answer.length === 0) {
+          answerWrap.appendChild(el('span', {className:'text-muted',style:'line-height:40px'}, [document.createTextNode('点击下方字母排列')]));
+        } else {
+          answer.forEach((letter, i) => {
+            const btn = el('button', {
+              className:'btn btn-primary',
+              style:'width:40px;height:40px;padding:0;font-size:1.2rem;font-weight:700',
+              onClick:() => {
+                // 点击答案区字母 → 移回字母池
+                answer.splice(i, 1);
+                pool.push(letter);
+                renderAnswer();
+                renderPool();
+              }
+            }, [document.createTextNode(letter)]);
+            answerWrap.appendChild(btn);
+          });
         }
-      }, [document.createTextNode(opt.meaning || '(无释义)')]));
-    });
-    wrap.appendChild(optionsWrap);
+      }
+
+      // 字母池
+      const poolWrap = el('div', {className:'flex gap-sm mb-md',style:'justify-content:center;flex-wrap:wrap'}, []);
+      function renderPool() {
+        poolWrap.innerHTML = '';
+        pool.forEach((letter, i) => {
+          const btn = el('button', {
+            className:'btn btn-secondary',
+            style:'width:40px;height:40px;padding:0;font-size:1.2rem;font-weight:700;text-transform:lowercase',
+            onClick:() => {
+              // 点击字母池字母 → 移到答案区
+              pool.splice(i, 1);
+              answer.push(letter);
+              renderAnswer();
+              renderPool();
+            }
+          }, [document.createTextNode(letter)]);
+          poolWrap.appendChild(btn);
+        });
+      }
+
+      // 按钮区
+      const btnWrap = el('div', {className:'flex gap-sm',style:'justify-content:center'}, []);
+      const clearBtn = el('button', {className:'btn btn-sm',onClick:() => {
+        pool = [...letters].sort(() => Math.random() - 0.5);
+        answer = [];
+        renderAnswer();
+        renderPool();
+      }}, [document.createTextNode('🔄 清空')]);
+
+      const submitBtn = el('button', {className:'btn btn-primary btn-sm',onClick:() => {
+        const userAnswer = answer.join('');
+        if (userAnswer === target) {
+          testCorrect++;
+          wrap.appendChild(el('div', {className:'text-success mt-sm',style:'text-align:center'}, [document.createTextNode('✅ 正确！')]));
+        } else {
+          wrap.appendChild(el('div', {className:'text-danger mt-sm',style:'text-align:center'}, [document.createTextNode(`❌ 正确拼写：${target}`)]));
+        }
+        submitBtn.disabled = true;
+        clearBtn.disabled = true;
+        setTimeout(() => { testIndex++; renderTestQuestion(); }, 1200);
+      }}, [document.createTextNode('✅ 确定')]);
+
+      btnWrap.appendChild(clearBtn);
+      btnWrap.appendChild(submitBtn);
+
+      wrap.appendChild(answerWrap);
+      wrap.appendChild(poolWrap);
+      wrap.appendChild(btnWrap);
+
+      renderAnswer();
+      renderPool();
+    }
   }
 
   // ===== 学习新词阶段 =====
