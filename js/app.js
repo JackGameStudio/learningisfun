@@ -1361,7 +1361,7 @@ async function generateSentenceSmart(word, meaning='', dictExample='') {
     return dictExample.trim();
   }
 
-  // 2. Tatoeba API（开源例句数据库）
+  // 2. Free Dictionary API（加延迟防限流）
   try {
     const now = Date.now();
     if (now - lastAPICall < API_DELAY) {
@@ -1369,29 +1369,20 @@ async function generateSentenceSmart(word, meaning='', dictExample='') {
     }
     lastAPICall = Date.now();
 
-    // Tatoeba 搜索 API（通过 CORS proxy）
-    const tatoebaUrl = `https://tatoeba.org/en/api_v0/search?query=${encodeURIComponent(w)}&from=eng&to=und`;
-    const resp = await fetch(`https://api.allorigins.win/raw?url=${encodeURIComponent(tatoebaUrl)}`);
+    const resp = await fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(w)}`);
     if (resp.ok) {
       const data = await resp.json();
-      if (data.results && data.results.length > 0) {
-        // 找一个包含目标词的例句
-        for (const result of data.results) {
-          const sentence = result.text || (result.sentence && result.sentence.text);
-          if (sentence && typeof sentence === 'string') {
-            const lowerSentence = sentence.toLowerCase();
-            // 确保句子包含目标词（完整单词匹配）
-            const regex = new RegExp(`\\b${w}\\b`, 'i');
-            if (regex.test(sentence) && sentence.length > 10 && sentence.length < 200) {
-              return sentence.trim();
+      for (const entry of (data||[])) {
+        for (const m of (entry.meanings||[])) {
+          for (const def of (m.definitions||[])) {
+            if (def.example && typeof def.example === 'string' && def.example.length > 10 && def.example.length < 150) {
+              return def.example.trim();
             }
           }
         }
       }
     }
-  } catch (e) {
-    console.log('[Tatoeba] 查询失败:', e.message);
-  }
+  } catch (e) { /* 静默失败 */ }
 
   // 3. 都没有 → 不造假句
   return '';
