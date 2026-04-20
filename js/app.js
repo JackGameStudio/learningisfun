@@ -948,7 +948,7 @@ function renderNav() {
     renderLogin();
   }}, [
     el('span', {className:'nav-icon'}, [document.createTextNode('🔄')]),
-    el('span', {className:'nav-label'}, [document.createTextNode(currentUser ? currentUser.substring(0,4) : '切换')])
+    el('span', {className:'nav-label'}, [document.createTextNode(currentUser ? currentUser.name.substring(0,4) : '切换')])
   ]));
   return nav;
 }
@@ -968,7 +968,7 @@ function renderHome() {
 
   wrap.appendChild(el('div', {style:'text-align:center;margin-bottom:var(--space-lg)'}, [
     el('h1', {}, [document.createTextNode('🏝️ LearningIsFun')]),
-    el('p', {className:'text-muted',style:'margin-top:var(--space-xs)'}, [document.createTextNode(currentUser ? `👋 ${currentUser}，每天10分钟，轻松背单词` : '每天10分钟，轻松背单词')])
+    el('p', {className:'text-muted',style:'margin-top:var(--space-xs)'}, [document.createTextNode(currentUser ? `👋 ${currentUser.name}，每天10分钟，轻松背单词` : '每天10分钟，轻松背单词')])
   ]));
 
   wrap.appendChild(el('div', {className:'card mb-md'}, [
