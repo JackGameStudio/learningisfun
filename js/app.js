@@ -1526,6 +1526,7 @@ function renderNav() {
 }
 
 function renderHome() {
+  const today = new Date().toISOString().split('T')[0];
   const words = store.getAll();
   const totalWords = words.length;
   let stats = { total: totalWords, mastered: 0, learning: 0, newWords: 0, dueToday: 0, avgCorrect: 0 };
