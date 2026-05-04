@@ -2,396 +2,381 @@
 <html lang="zh">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>LearningIsFun - 像素游戏风</title>
-  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=VT323&display=swap" rel="stylesheet">
   <style>
     :root {
       --bg-dark: #1a1c2c;
-      --bg-mid: #333c57;
-      --stone: #7f7f7f;
-      --iron: #d4d4d4;
+      --bg-card: #262b44;
+      --stone: #6b7280;
+      --iron: #a8a8a8;
       --gold: #f5d742;
-      --diamond: #4ae3e3;
-      --emerald: #3de366;
-      --red: #df4759;
-      --text: #f4f4f4;
+      --diamond: #5eead4;
+      --emerald: #4ade80;
+      --red: #f87171;
+      --text: #f0f0f0;
+      --safe-top: env(safe-area-inset-top, 0px);
+      --safe-bottom: env(safe-area-inset-bottom, 0px);
     }
-    
-    * {
-      margin: 0;
-      padding: 0;
-      box-sizing: border-box;
-    }
-    
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
     body {
-      font-family: 'Press Start 2P', cursive;
+      font-family: 'VT323', monospace;
       background: var(--bg-dark);
       color: var(--text);
       min-height: 100vh;
+      min-height: 100dvh;
       image-rendering: pixelated;
+      -webkit-text-size-adjust: 100%;
+      overflow-x: hidden;
     }
-    
-    /* 像素边框效果 */
-    .pixel-border {
-      border: 4px solid var(--text);
-      box-shadow: 
-        4px 4px 0 var(--bg-mid),
-        inset -4px -4px 0 var(--bg-mid);
-    }
-    
-    .pixel-btn {
-      background: var(--bg-mid);
-      border: 4px solid var(--text);
-      padding: 12px 24px;
-      font-family: inherit;
-      font-size: 12px;
-      color: var(--text);
-      cursor: pointer;
-      transition: transform 0.1s;
-      image-rendering: pixelated;
-    }
-    
-    .pixel-btn:hover {
-      transform: translate(-2px, -2px);
-      box-shadow: 6px 6px 0 var(--bg-mid);
-    }
-    
-    .pixel-btn:active {
-      transform: translate(0, 0);
-      box-shadow: none;
-    }
-    
-    /* 导航栏 */
-    nav {
-      background: var(--bg-mid);
-      padding: 16px;
+
+    /* === 顶部状态栏 === */
+    .status-bar {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      border-bottom: 4px solid var(--text);
+      padding: calc(var(--safe-top) + 12px) 20px 12px;
+      background: var(--bg-card);
+      border-bottom: 4px solid #3a3f5c;
+      font-size: 22px;
     }
-    
-    .logo {
-      font-size: 16px;
+
+    .status-bar .logo {
+      font-size: 24px;
       color: var(--gold);
-      text-shadow: 2px 2px 0 var(--bg-dark);
     }
-    
-    .nav-items {
-      display: flex;
-      gap: 16px;
-    }
-    
-    .nav-item {
-      font-size: 10px;
-      padding: 8px 16px;
-      background: transparent;
-      border: 2px solid var(--text);
-      color: var(--text);
-      cursor: pointer;
-    }
-    
-    .nav-item:hover {
-      background: var(--text);
-      color: var(--bg-dark);
-    }
-    
-    /* 主内容区 */
-    main {
-      max-width: 900px;
-      margin: 0 auto;
-      padding: 24px;
-    }
-    
-    /* 玩家状态卡片 */
-    .player-card {
-      background: var(--bg-mid);
-      padding: 20px;
-      margin-bottom: 24px;
-    }
-    
-    .player-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 16px;
-    }
-    
-    .player-name {
-      font-size: 14px;
+
+    .status-bar .level-badge {
       color: var(--diamond);
+      font-size: 20px;
     }
-    
-    .player-level {
-      font-size: 10px;
-      color: var(--gold);
-    }
-    
-    /* 经验条 - 像素风格 */
-    .exp-bar-container {
+
+    /* === 经验条 === */
+    .exp-section {
+      padding: 16px 20px;
       background: var(--bg-dark);
+    }
+
+    .exp-row {
+      display: flex;
+      justify-content: space-between;
+      font-size: 18px;
+      margin-bottom: 6px;
+      color: var(--stone);
+    }
+
+    .exp-row span:last-child { color: var(--emerald); }
+
+    .exp-bar {
+      background: #0f1123;
       border: 2px solid var(--stone);
-      height: 24px;
+      height: 20px;
       position: relative;
     }
-    
-    .exp-bar-fill {
-      background: var(--emerald);
+
+    .exp-fill {
+      background: repeating-linear-gradient(
+        45deg,
+        var(--emerald) 0px,
+        var(--emerald) 8px,
+        #2a9d4a 8px,
+        #2a9d4a 16px
+      );
       height: 100%;
       width: 65%;
-      transition: width 0.5s steps(20);
-      position: relative;
     }
-    
-    .exp-bar-fill::after {
-      content: '';
-      position: absolute;
-      right: 0;
-      top: 0;
-      bottom: 0;
-      width: 4px;
-      background: var(--text);
-      animation: blink 1s infinite;
-    }
-    
-    @keyframes blink {
-      0%, 50% { opacity: 1; }
-      51%, 100% { opacity: 0; }
-    }
-    
-    .exp-text {
-      position: absolute;
-      right: 8px;
-      top: 50%;
-      transform: translateY(-50%);
-      font-size: 8px;
-      color: var(--text);
-    }
-    
-    /* 升级路线 */
-    .upgrade-path {
+
+    /* === 升级路线 === */
+    .upgrade-track {
       display: flex;
       justify-content: space-between;
-      margin: 24px 0;
-      padding: 16px;
-      background: var(--bg-dark);
+      align-items: center;
+      padding: 16px 8px;
+      background: var(--bg-card);
+      overflow-x: auto;
+      gap: 4px;
     }
-    
-    .upgrade-item {
-      text-align: center;
-      opacity: 0.4;
-      transition: opacity 0.3s;
+
+    .upgrade-track::-webkit-scrollbar { display: none; }
+
+    .ut-item {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+      min-width: 52px;
+      opacity: 0.35;
+      transition: opacity 0.2s;
     }
-    
-    .upgrade-item.active {
-      opacity: 1;
-    }
-    
-    .upgrade-icon {
-      width: 48px;
-      height: 48px;
-      margin: 0 auto 8px;
+
+    .ut-item.done { opacity: 1; }
+
+    .ut-icon {
+      width: 40px;
+      height: 40px;
+      border: 3px solid var(--stone);
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 24px;
+      font-size: 22px;
+      background: var(--bg-dark);
     }
-    
-    .upgrade-label {
-      font-size: 8px;
+
+    .ut-item.done .ut-icon {
+      border-color: var(--gold);
+      box-shadow: 0 0 8px var(--gold);
     }
-    
-    /* 学习卡片 */
-    .learn-section {
-      margin-top: 24px;
+
+    .ut-label {
+      font-size: 14px;
+      color: var(--stone);
     }
-    
-    .section-title {
-      font-size: 12px;
-      color: var(--gold);
-      margin-bottom: 16px;
-      text-shadow: 2px 2px 0 var(--bg-dark);
+
+    .ut-item.done .ut-label { color: var(--text); }
+
+    .ut-connector {
+      flex: 1;
+      height: 3px;
+      background: var(--stone);
+      min-width: 8px;
     }
-    
-    .word-card {
-      background: var(--bg-mid);
-      padding: 32px;
+
+    .ut-item.done + .ut-connector,
+    .ut-connector.done { background: var(--gold); }
+
+    /* === 主卡片 === */
+    .main-card {
+      margin: 16px 20px;
+      background: var(--bg-card);
+      border: 4px solid #3a3f5c;
+      padding: 24px 20px;
       text-align: center;
       cursor: pointer;
-      transition: transform 0.2s;
     }
-    
-    .word-card:hover {
-      transform: scale(1.02);
-    }
-    
-    .word-main {
-      font-size: 24px;
+
+    .word-text {
+      font-size: 52px;
       color: var(--text);
-      margin-bottom: 8px;
+      margin-bottom: 6px;
+      line-height: 1.1;
+      letter-spacing: 2px;
     }
-    
+
     .word-phonetic {
-      font-size: 10px;
+      font-size: 22px;
       color: var(--stone);
-      margin-bottom: 16px;
+      margin-bottom: 20px;
     }
-    
+
     .word-meaning {
-      font-size: 12px;
+      font-size: 28px;
       color: var(--diamond);
       opacity: 0;
       transition: opacity 0.3s;
+      min-height: 32px;
     }
-    
-    .word-card.revealed .word-meaning {
-      opacity: 1;
+
+    .main-card.revealed .word-meaning { opacity: 1; }
+
+    .word-hint {
+      font-size: 16px;
+      color: var(--stone);
+      margin-top: 12px;
     }
-    
-    /* 进度统计 */
-    .stats-grid {
-      display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 16px;
-      margin-top: 24px;
+
+    .main-card.revealed .word-hint { display: none; }
+
+    /* === 操作按钮 === */
+    .action-btns {
+      display: flex;
+      gap: 12px;
+      margin: 20px 20px 0;
     }
-    
-    .stat-box {
-      background: var(--bg-mid);
-      padding: 16px;
+
+    .action-btn {
+      flex: 1;
+      font-family: 'VT323', monospace;
+      font-size: 22px;
+      padding: 14px 8px;
+      border: 3px solid;
+      cursor: pointer;
+      background: var(--bg-card);
+      transition: transform 0.1s;
+    }
+
+    .action-btn:active { transform: scale(0.96); }
+
+    .btn-wrong { border-color: var(--red); color: var(--red); }
+    .btn-hmm   { border-color: var(--gold); color: var(--gold); }
+    .btn-know  { border-color: var(--emerald); color: var(--emerald); }
+
+    /* === 统计 === */
+    .stats-row {
+      display: flex;
+      gap: 12px;
+      margin: 20px 20px;
+    }
+
+    .stat-card {
+      flex: 1;
+      background: var(--bg-card);
+      border: 2px solid #3a3f5c;
+      padding: 16px 12px;
       text-align: center;
     }
-    
-    .stat-value {
-      font-size: 20px;
+
+    .stat-num {
+      font-size: 36px;
       color: var(--emerald);
-      margin-bottom: 8px;
     }
-    
-    .stat-label {
-      font-size: 8px;
+
+    .stat-lbl {
+      font-size: 16px;
       color: var(--stone);
+      margin-top: 2px;
     }
-    
-    /* 动画 */
-    @keyframes float {
-      0%, 100% { transform: translateY(0); }
-      50% { transform: translateY(-8px); }
+
+    /* === 底部导航 === */
+    .bottom-nav {
+      display: flex;
+      justify-content: space-around;
+      padding: 12px 0;
+      padding-bottom: calc(var(--safe-bottom) + 12px);
+      background: var(--bg-card);
+      border-top: 4px solid #3a3f5c;
+      position: sticky;
+      bottom: 0;
     }
-    
-    .float-anim {
-      animation: float 2s ease-in-out infinite;
+
+    .bn-item {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+      font-size: 18px;
+      color: var(--stone);
+      cursor: pointer;
     }
-    
-    /* 响应式 */
-    @media (max-width: 600px) {
-      .stats-grid {
-        grid-template-columns: 1fr;
-      }
-      
-      .upgrade-path {
-        flex-wrap: wrap;
-        gap: 16px;
-      }
-      
-      .upgrade-item {
-        flex: 1 1 30%;
-      }
+
+    .bn-item.active { color: var(--gold); }
+
+    .bn-item span:last-child {
+      font-size: 14px;
     }
   </style>
 </head>
 <body>
-  <nav>
-    <div class="logo">🎮 LearningIsFun</div>
-    <div class="nav-items">
-      <button class="nav-item">📚 词库</button>
-      <button class="nav-item">📊 统计</button>
-      <button class="nav-item">⚙️ 设置</button>
+
+  <!-- 顶部状态栏 -->
+  <div class="status-bar">
+    <div class="logo">🎮 LIF</div>
+    <div class="level-badge">⭐ Lv.12</div>
+  </div>
+
+  <!-- 经验条 -->
+  <div class="exp-section">
+    <div class="exp-row">
+      <span>当前经验</span>
+      <span>650 / 1000 XP</span>
     </div>
-  </nav>
-  
-  <main>
-    <!-- 玩家状态 -->
-    <div class="player-card pixel-border">
-      <div class="player-header">
-        <span class="player-name">👤 玩家小明</span>
-        <span class="player-level">⭐ Lv.12 矿工</span>
-      </div>
-      <div class="exp-bar-container">
-        <div class="exp-bar-fill"></div>
-        <span class="exp-text">650/1000 XP</span>
-      </div>
+    <div class="exp-bar"><div class="exp-fill"></div></div>
+  </div>
+
+  <!-- 升级路线 -->
+  <div class="upgrade-track">
+    <div class="ut-item done">
+      <div class="ut-icon">🪨</div>
+      <div class="ut-label">圆石</div>
     </div>
-    
-    <!-- 升级路线 -->
-    <div class="upgrade-path pixel-border">
-      <div class="upgrade-item">
-        <div class="upgrade-icon">🪨</div>
-        <div class="upgrade-label">圆石</div>
-      </div>
-      <div class="upgrade-item active">
-        <div class="upgrade-icon">🧱</div>
-        <div class="upgrade-label">泥土</div>
-      </div>
-      <div class="upgrade-item">
-        <div class="upgrade-icon">🪵</div>
-        <div class="upgrade-label">橡木</div>
-      </div>
-      <div class="upgrade-item">
-        <div class="upgrade-icon">🔩</div>
-        <div class="upgrade-label">铁块</div>
-      </div>
-      <div class="upgrade-item">
-        <div class="upgrade-icon">💎</div>
-        <div class="upgrade-label">钻石</div>
-      </div>
-      <div class="upgrade-item">
-        <div class="upgrade-icon">💚</div>
-        <div class="upgrade-label">绿宝石</div>
-      </div>
+    <div class="ut-connector done"></div>
+    <div class="ut-item done">
+      <div class="ut-icon">🧱</div>
+      <div class="ut-label">泥土</div>
     </div>
-    
-    <!-- 学习卡片 -->
-    <div class="learn-section">
-      <div class="section-title">📖 今日学习</div>
-      <div class="word-card pixel-border" onclick="this.classList.toggle('revealed')">
-        <div class="word-main float-anim">ADVENTURE</div>
-        <div class="word-phonetic">/ədˈventʃər/</div>
-        <div class="word-meaning">n. 冒险，奇遇</div>
-      </div>
-      
-      <div style="display: flex; gap: 16px; margin-top: 16px; justify-content: center;">
-        <button class="pixel-btn" style="background: var(--red);">❌ 不认识</button>
-        <button class="pixel-btn" style="background: var(--gold);">🤔 有点熟</button>
-        <button class="pixel-btn" style="background: var(--emerald);">✅ 认识</button>
-      </div>
+    <div class="ut-connector done"></div>
+    <div class="ut-item done">
+      <div class="ut-icon">🪵</div>
+      <div class="ut-label">橡木</div>
     </div>
-    
-    <!-- 统计 -->
-    <div class="stats-grid">
-      <div class="stat-box pixel-border">
-        <div class="stat-value">735</div>
-        <div class="stat-label">总词数</div>
-      </div>
-      <div class="stat-box pixel-border">
-        <div class="stat-value">42</div>
-        <div class="stat-label">今日新学</div>
-      </div>
-      <div class="stat-box pixel-border">
-        <div class="stat-value">89%</div>
-        <div class="stat-label">正确率</div>
-      </div>
+    <div class="ut-connector"></div>
+    <div class="ut-item">
+      <div class="ut-icon">🔩</div>
+      <div class="ut-label">铁块</div>
     </div>
-  </main>
-  
+    <div class="ut-connector"></div>
+    <div class="ut-item">
+      <div class="ut-icon">💎</div>
+      <div class="ut-label">钻石</div>
+    </div>
+    <div class="ut-connector"></div>
+    <div class="ut-item">
+      <div class="ut-icon">💚</div>
+      <div class="ut-label">绿宝石</div>
+    </div>
+  </div>
+
+  <!-- 学习卡片 -->
+  <div class="main-card" onclick="this.classList.toggle('revealed')">
+    <div class="word-text">ADVENTURE</div>
+    <div class="word-phonetic">/ədˈventʃər/</div>
+    <div class="word-meaning">n. 冒险，奇遇</div>
+    <div class="word-hint">👆 点击显示中文</div>
+  </div>
+
+  <!-- 操作按钮 -->
+  <div class="action-btns">
+    <button class="action-btn btn-wrong">❌ 不认识</button>
+    <button class="action-btn btn-hmm">🤔 有点熟</button>
+    <button class="action-btn btn-know">✅ 认识</button>
+  </div>
+
+  <!-- 统计 -->
+  <div class="stats-row">
+    <div class="stat-card">
+      <div class="stat-num">735</div>
+      <div class="stat-lbl">总词数</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-num">42</div>
+      <div class="stat-lbl">今日新学</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-num">89%</div>
+      <div class="stat-lbl">正确率</div>
+    </div>
+  </div>
+
+  <!-- 底部导航 -->
+  <div class="bottom-nav">
+    <div class="bn-item active">
+      <span>🎮</span><span>学习</span>
+    </div>
+    <div class="bn-item">
+      <span>📚</span><span>词库</span>
+    </div>
+    <div class="bn-item">
+      <span>📊</span><span>统计</span>
+    </div>
+    <div class="bn-item">
+      <span>⚙️</span><span>设置</span>
+    </div>
+  </div>
+
   <script>
-    // 简单交互：升级路线点击
-    document.querySelectorAll('.upgrade-item').forEach(item => {
+    // 底部导航切换
+    document.querySelectorAll('.bn-item').forEach(item => {
       item.addEventListener('click', () => {
-        document.querySelectorAll('.upgrade-item').forEach(i => i.classList.remove('active'));
+        document.querySelectorAll('.bn-item').forEach(i => i.classList.remove('active'));
         item.classList.add('active');
       });
+    });
+
+    // 点击卡片显示中文
+    document.querySelector('.main-card').addEventListener('click', () => {
+      document.querySelector('.main-card').classList.toggle('revealed');
     });
   </script>
 </body>

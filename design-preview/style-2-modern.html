@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>LearningIsFun - 现代清新风</title>
+  <style>
+    :root {
+      --bg: #f8f9fe;
+      --card: #ffffff;
+      --primary: #3b82f6;
+      --primary-light: #dbeafe;
+      --success: #10b981;
+      --success-light: #d1fae5;
+      --warning: #f59e0b;
+      --warning-light: #fef3c7;
+      --danger: #ef4444;
+      --danger-light: #fee2e2;
+      --text: #1e293b;
+      --text2: #64748b;
+      --text3: #94a3b8;
+      --border: #e2e8f0;
+      --radius: 16px;
+      --radius-sm: 12px;
+      --safe-top: env(safe-area-inset-top, 0px);
+      --safe-bottom: env(safe-area-inset-bottom, 0px);
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Helvetica Neue', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      min-height: 100dvh;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* === 顶部 === */
+    .top-bar {
+      padding: calc(var(--safe-top) + 12px) 20px 14px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: var(--card);
+    }
+
+    .greeting { font-size: 14px; color: var(--text2); }
+
+    .user-name {
+      font-size: 22px;
+      font-weight: 700;
+      margin-top: 2px;
+    }
+
+    .avatar {
+      width: 44px;
+      height: 44px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, var(--primary), #60a5fa);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 20px;
+      color: #fff;
+    }
+
+    /* === 今日进度卡片 === */
+    .progress-hero {
+      margin: 16px 20px 0;
+      background: linear-gradient(135deg, #3b82f6 0%, #60a5fa 100%);
+      border-radius: var(--radius);
+      padding: 24px 20px;
+      color: #fff;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .progress-hero::before {
+      content: '';
+      position: absolute;
+      top: -30px;
+      right: -30px;
+      width: 120px;
+      height: 120px;
+      border-radius: 50%;
+      background: rgba(255,255,255,0.08);
+    }
+
+    .progress-hero::after {
+      content: '';
+      position: absolute;
+      bottom: -40px;
+      right: 30px;
+      width: 80px;
+      height: 80px;
+      border-radius: 50%;
+      background: rgba(255,255,255,0.06);
+    }
+
+    .ph-title {
+      font-size: 15px;
+      opacity: 0.9;
+      margin-bottom: 4px;
+    }
+
+    .ph-count {
+      font-size: 36px;
+      font-weight: 800;
+      line-height: 1.2;
+    }
+
+    .ph-count small {
+      font-size: 18px;
+      font-weight: 400;
+      opacity: 0.8;
+    }
+
+    .ph-bar-wrap {
+      margin-top: 16px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .ph-bar {
+      flex: 1;
+      height: 8px;
+      background: rgba(255,255,255,0.25);
+      border-radius: 99px;
+      overflow: hidden;
+    }
+
+    .ph-bar-fill {
+      height: 100%;
+      width: 65%;
+      background: #fff;
+      border-radius: 99px;
+      transition: width 0.6s ease;
+    }
+
+    .ph-bar-text {
+      font-size: 13px;
+      opacity: 0.85;
+      white-space: nowrap;
+    }
+
+    /* === 等级徽章 === */
+    .level-badges {
+      display: flex;
+      gap: 8px;
+      margin: 16px 20px 0;
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+    }
+
+    .level-badges::-webkit-scrollbar { display: none; }
+
+    .badge {
+      flex-shrink: 0;
+      padding: 8px 14px;
+      border-radius: 99px;
+      font-size: 13px;
+      font-weight: 600;
+      background: var(--card);
+      color: var(--text2);
+      border: 1.5px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .badge.current {
+      background: var(--primary);
+      color: #fff;
+      border-color: var(--primary);
+    }
+
+    .badge.locked { opacity: 0.45; }
+
+    /* === 今日单词卡片 === */
+    .section-label {
+      padding: 24px 20px 12px;
+      font-size: 18px;
+      font-weight: 700;
+    }
+
+    .word-card {
+      margin: 0 20px;
+      background: var(--card);
+      border-radius: var(--radius);
+      padding: 32px 24px;
+      text-align: center;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+      cursor: pointer;
+      transition: transform 0.15s;
+      position: relative;
+    }
+
+    .word-card:active { transform: scale(0.98); }
+
+    .word-en {
+      font-size: 42px;
+      font-weight: 800;
+      letter-spacing: -1px;
+      color: var(--text);
+    }
+
+    .word-phonetic {
+      font-size: 16px;
+      color: var(--text3);
+      margin-top: 6px;
+    }
+
+    .word-divider {
+      width: 40px;
+      height: 3px;
+      background: var(--primary);
+      border-radius: 99px;
+      margin: 18px auto;
+      transition: width 0.3s;
+    }
+
+    .word-card.revealed .word-divider { width: 60px; }
+
+    .word-cn {
+      font-size: 22px;
+      color: var(--primary);
+      font-weight: 600;
+      opacity: 0;
+      transform: translateY(8px);
+      transition: all 0.3s;
+    }
+
+    .word-card.revealed .word-cn {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    .word-morph {
+      font-size: 14px;
+      color: var(--text3);
+      margin-top: 10px;
+      opacity: 0;
+      transition: opacity 0.3s 0.1s;
+    }
+
+    .word-card.revealed .word-morph { opacity: 1; }
+
+    .word-tap-hint {
+      font-size: 13px;
+      color: var(--text3);
+      margin-top: 14px;
+    }
+
+    .word-card.revealed .word-tap-hint { display: none; }
+
+    /* === 操作按钮 === */
+    .action-btns {
+      display: flex;
+      gap: 12px;
+      padding: 20px 20px 0;
+    }
+
+    .act-btn {
+      flex: 1;
+      border: none;
+      border-radius: var(--radius-sm);
+      padding: 16px 8px;
+      font-family: inherit;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: transform 0.1s, opacity 0.1s;
+    }
+
+    .act-btn:active { transform: scale(0.96); opacity: 0.85; }
+
+    .btn-wrong  { background: var(--danger-light); color: var(--danger); }
+    .btn-hmm    { background: var(--warning-light); color: #b45309; }
+    .btn-know   { background: var(--success-light); color: #047857; }
+
+    /* === 统计行 === */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+      padding: 20px 20px 0;
+    }
+
+    .stat-card {
+      background: var(--card);
+      border-radius: var(--radius-sm);
+      padding: 16px 12px;
+      text-align: center;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.03);
+    }
+
+    .stat-num {
+      font-size: 28px;
+      font-weight: 800;
+    }
+
+    .stat-lbl {
+      font-size: 12px;
+      color: var(--text3);
+      margin-top: 2px;
+    }
+
+    .stat-num.c1 { color: var(--primary); }
+    .stat-num.c2 { color: var(--success); }
+    .stat-num.c3 { color: var(--warning); }
+
+    /* === 底部导航 === */
+    .bottom-nav {
+      display: flex;
+      justify-content: space-around;
+      padding: 10px 0;
+      padding-bottom: calc(var(--safe-bottom) + 10px);
+      background: var(--card);
+      border-top: 1px solid var(--border);
+      position: sticky;
+      bottom: 0;
+      margin-top: 24px;
+    }
+
+    .bn-item {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 3px;
+      font-size: 11px;
+      color: var(--text3);
+      cursor: pointer;
+      padding: 4px 12px;
+    }
+
+    .bn-item.active { color: var(--primary); }
+
+    .bn-icon {
+      font-size: 22px;
+      line-height: 1;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- 顶部问候 -->
+  <div class="top-bar">
+    <div>
+      <div class="greeting">下午好 👋</div>
+      <div class="user-name">小明同学</div>
+    </div>
+    <div class="avatar">👦</div>
+  </div>
+
+  <!-- 今日进度 -->
+  <div class="progress-hero">
+    <div class="ph-title">今日学习进度</div>
+    <div class="ph-count">13<small> / 20 词</small></div>
+    <div class="ph-bar-wrap">
+      <div class="ph-bar"><div class="ph-bar-fill"></div></div>
+      <div class="ph-bar-text">65%</div>
+    </div>
+  </div>
+
+  <!-- 等级 -->
+  <div class="level-badges">
+    <div class="badge">🪨 圆石</div>
+    <div class="badge">🧱 泥土</div>
+    <div class="badge">🪵 橡木</div>
+    <div class="badge current">🔩 铁块</div>
+    <div class="badge locked">💎 钻石</div>
+    <div class="badge locked">💚 绿宝石</div>
+  </div>
+
+  <!-- 单词卡片 -->
+  <div class="section-label">📖 今日单词</div>
+
+  <div class="word-card" onclick="this.classList.toggle('revealed')">
+    <div class="word-en">Adventure</div>
+    <div class="word-phonetic">/ədˈventʃər/</div>
+    <div class="word-divider"></div>
+    <div class="word-cn">n. 冒险，奇遇</div>
+    <div class="word-morph">ad(向) + vent(来) + ure → 前来冒险</div>
+    <div class="word-tap-hint">轻触卡片查看释义</div>
+  </div>
+
+  <!-- 操作按钮 -->
+  <div class="action-btns">
+    <button class="act-btn btn-wrong">❌ 不认识</button>
+    <button class="act-btn btn-hmm">🤔 模糊</button>
+    <button class="act-btn btn-know">✅ 认识</button>
+  </div>
+
+  <!-- 统计 -->
+  <div class="stats-grid">
+    <div class="stat-card">
+      <div class="stat-num c1">735</div>
+      <div class="stat-lbl">词库总量</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-num c2">13</div>
+      <div class="stat-lbl">今日已学</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-num c3">7天</div>
+      <div class="stat-lbl">连续打卡</div>
+    </div>
+  </div>
+
+  <!-- 底部导航 -->
+  <div class="bottom-nav">
+    <div class="bn-item active">
+      <div class="bn-icon">📖</div>
+      <span>学习</span>
+    </div>
+    <div class="bn-item">
+      <div class="bn-icon">📚</div>
+      <span>词库</span>
+    </div>
+    <div class="bn-item">
+      <div class="bn-icon">🏆</div>
+      <span>成就</span>
+    </div>
+    <div class="bn-item">
+      <div class="bn-icon">👤</div>
+      <span>我的</span>
+    </div>
+  </div>
+
+  <script>
+    document.querySelectorAll('.bn-item').forEach(item => {
+      item.addEventListener('click', () => {
+        document.querySelectorAll('.bn-item').forEach(i => i.classList.remove('active'));
+        item.classList.add('active');
+      });
+    });
+  </script>
+</body>
+</html>

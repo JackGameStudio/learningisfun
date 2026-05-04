@@ -1471,9 +1471,9 @@ function render() {
   const app = document.getElementById('app');
   app.innerHTML = '';
   const views = { home:renderHome, import:renderImport, study:renderStudy, island:renderIsland, stats:renderStats, wordbank:renderWordBank };
-  app.appendChild(renderNav());
   const viewEl = (views[currentView] || renderHome)();
   if (viewEl) app.appendChild(viewEl);
+  app.appendChild(renderNav());
 }
 
 // 返回顶部按钮
@@ -1507,14 +1507,12 @@ function el(tag, attrs={}, children=[]) {
 
 function renderNav() {
   const stats = store.getStats();
-  const nav = el('nav', {className:'top-nav'}, []);
+  const nav = el('nav', {className:'nav-bottom'}, []);
   const items = [
-    { view:'home', icon:'🏠', label:'首页' },
-    { view:'import', icon:'📥', label:'导入' },
-    { view:'study', icon:'🧠', label:'学习', badge:stats.dueToday||null },
-    { view:'island', icon:'🏝️', label:'岛屿' },
+    { view:'home', icon:'📖', label:'学习' },
     { view:'wordbank', icon:'📚', label:'词库' },
-    { view:'stats', icon:'📊', label:'统计' },
+    { view:'island', icon:'🏆', label:'成就' },
+    { view:'stats', icon:'👤', label:'我的' },
   ];
   for (const item of items) {
     const btn = el('button', {className:`nav-btn${currentView===item.view?' active':''}`, onClick:()=>navigate(item.view)}, [
@@ -1524,20 +1522,10 @@ function renderNav() {
     ]);
     nav.appendChild(btn);
   }
-  // 切换用户按钮
-  nav.appendChild(el('button', {className:'nav-btn', onClick:()=>{
-    currentUser = null;
-    localStorage.removeItem('lif_current_user');
-    renderLogin();
-  }}, [
-    el('span', {className:'nav-icon'}, [document.createTextNode('🔄')]),
-    el('span', {className:'nav-label'}, [document.createTextNode(currentUser ? currentUser.name.substring(0,4) : '切换')])
-  ]));
   return nav;
 }
 
 function renderHome() {
-  // 直接从词库读取数量，避免getStats()计算出错导致按钮禁用
   const words = store.getAll();
   const totalWords = words.length;
   let stats = { total: totalWords, mastered: 0, learning: 0, newWords: 0, dueToday: 0, avgCorrect: 0 };
@@ -1546,77 +1534,95 @@ function renderHome() {
     if (s && typeof s.total === 'number') stats = { ...stats, ...s };
   } catch {}
   const due = getDueWords();
+  const settings = store.getSettings();
+  const dailyGoal = settings.dailyNewWords || 20;
 
   const wrap = el('div', {className:'view-home animate-fade-in'}, []);
 
-  wrap.appendChild(el('div', {style:'text-align:center;margin-bottom:var(--space-lg)'}, [
-    el('h1', {}, [document.createTextNode('🏝️ LearningIsFun')]),
-    el('p', {className:'text-muted',style:'margin-top:var(--space-xs)'}, [document.createTextNode(currentUser ? `👋 ${currentUser.name}，每天10分钟，轻松背单词` : '每天10分钟，轻松背单词')])
-  ]));
-
-  wrap.appendChild(el('div', {className:'card mb-md'}, [
-    el('div', {className:'flex justify-between items-center mb-sm'}, [
-      el('span', {}, [document.createTextNode('📚 我的词库')]),
-      el('strong', {}, [document.createTextNode(`${totalWords} 词`)])
+  // 顶部问候
+  const hour = new Date().getHours();
+  const greeting = hour < 12 ? '早上好 👋' : hour < 18 ? '下午好 👋' : '晚上好 👋';
+  wrap.appendChild(el('div', {className:'top-bar'}, [
+    el('div', {}, [
+      el('div', {className:'greeting'}, [document.createTextNode(greeting)]),
+      el('div', {className:'user-name'}, [document.createTextNode(currentUser ? currentUser.name : '同学')])
     ]),
-    el('div', {className:'flex gap-md text-center',style:'font-size:0.8rem;color:var(--color-text-muted)'}, [
-      el('div', {}, [el('strong',{style:'color:var(--color-success)'},[document.createTextNode(stats.mastered)]), el('br'), document.createTextNode('已掌握')]),
-      el('div', {}, [el('strong',{style:'color:var(--color-warning)'},[document.createTextNode(stats.learning)]), el('br'), document.createTextNode('学习中')]),
-      el('div', {}, [el('strong',{style:'color:var(--color-accent)'},[document.createTextNode(stats.newWords)]), el('br'), document.createTextNode('新词')]),
+    el('div', {className:'avatar'}, [document.createTextNode('👦')])
+  ]));
+
+  // 进度英雄卡
+  const todayLearned = (() => {
+    const d = loadData();
+    if (d.meta && d.meta.lastLearnDate === today) return d.meta.learnedToday || 0;
+    return 0;
+  })();
+  const progressPct = Math.min(100, Math.round((todayLearned / dailyGoal) * 100));
+  wrap.appendChild(el('div', {className:'progress-hero'}, [
+    el('div', {className:'ph-title'}, [document.createTextNode('今日学习进度')]),
+    el('div', {className:'ph-count'}, [document.createTextNode(`${todayLearned}`), el('small', {}, [document.createTextNode(` / ${dailyGoal} 词`)])]),
+    el('div', {className:'ph-bar-wrap'}, [
+      el('div', {className:'ph-bar'}, [el('div', {className:'ph-bar-fill',style:`width:${progressPct}%`}, [])]),
+      el('div', {className:'ph-bar-text'}, [document.createTextNode(`${progressPct}%`)])
     ])
   ]));
 
-  const dueCard = el('div', {className:'card mb-md',style:'border-left:4px solid var(--color-accent)'}, [
-    el('div', {className:'flex justify-between items-center'}, [
-      el('div', {}, [
-        el('div', {style:'font-size:1.5rem;font-weight:700'}, [document.createTextNode(due.length)]),
-        el('p', {className:'text-muted',style:'margin:0'}, [document.createTextNode('今日待复习')])
-      ]),
-      el('div', {style:'text-align:right'}, [
-        el('div', {style:'font-size:1.5rem;font-weight:700;color:var(--color-accent)'}, [document.createTextNode(`${stats.avgCorrect}%`)]),
-        el('p', {className:'text-muted',style:'margin:0'}, [document.createTextNode('正确率')])
-      ])
-    ])
-  ]);
-  wrap.appendChild(dueCard);
+  // 等级徽章
+  const milestones = getUnlockedMilestones(stats.total);
+  const nextMilestone = getNextMilestone(stats.total);
+  const badgeContainer = el('div', {className:'level-badges'}, []);
+  const allBadges = [
+    {e:'🪨',l:'圆石',t:0},{e:'🧱',l:'泥土',t:50},{e:'🪵',l:'橡木',t:100},
+    {e:'🔩',l:'铁块',t:200},{e:'💎',l:'钻石',t:400},{e:'💚',l:'绿宝石',t:800}
+  ];
+  for (const b of allBadges) {
+    const isCurrent = nextMilestone && stats.total >= b.t && stats.total < (nextMilestone.t === b.t ? 9999 : nextMilestone.t);
+    const isLocked = stats.total < b.t;
+    badgeContainer.appendChild(el('div', {
+      className: `badge${isCurrent?' current':''}${isLocked?' locked':''}`
+    }, [document.createTextNode(`${b.e} ${b.l}`)]));
+  }
+  wrap.appendChild(badgeContainer);
 
-  const studyBtn = el('button', {
-    className:'btn btn-primary btn-lg mb-md',
-    style:'width:100%',
-    onClick:()=>navigate('study'),
-    disabled: totalWords === 0
-  }, [document.createTextNode('🧠 开始学习')]);
-  wrap.appendChild(studyBtn);
-
-  // 每日新词设置
-  const settings = store.getSettings();
-  const dailySetting = el('div', {className:'flex items-center justify-between mb-md',style:'padding:var(--space-sm);background:var(--color-surface);border-radius:8px'}, [
-    el('span', {className:'text-muted'}, [document.createTextNode('📊 每日新词')]),
-    el('div', {className:'flex gap-xs'}, [20,30,40].map(n => 
-      el('button', {
-        className: `btn btn-sm ${settings.dailyNewWords === n ? 'btn-primary' : 'btn-secondary'}`,
-        onClick: () => { store.saveSettings({ dailyNewWords: n }); navigate('home'); }
-      }, [document.createTextNode(String(n))])
-    ))
-  ]);
-  wrap.appendChild(dailySetting);
+  // 今日单词卡片（学习入口）
+  wrap.appendChild(el('div', {className:'section-label'}, [document.createTextNode('📖 今日单词')]));
 
   if (totalWords === 0) {
-    wrap.appendChild(el('p', {className:'text-muted text-center',style:'margin:var(--space-md 0'}, [
-      document.createTextNode('还没有单词，'), el('a',{href:'#',onClick:(e)=>{e.preventDefault();navigate('import');}},[document.createTextNode('去导入一本PDF')]), document.createTextNode(' 开始吧！')
+    wrap.appendChild(el('div', {className:'card',style:'text-align:center;padding:var(--space-xl)'}, [
+      el('p', {className:'text-muted'}, [document.createTextNode('还没有单词，')]),
+      el('button', {className:'btn btn-primary mt-md',onClick:()=>navigate('import')}, [document.createTextNode('📥 导入单词')])
+    ]));
+  } else if (due.length > 0) {
+    // 有复习任务
+    const nextWord = due[0];
+    const card = el('div', {className:'card flashcard',style:'cursor:pointer',onClick:function(){this.classList.toggle('revealed');}}, [
+      el('div', {className:'word-en'}, [document.createTextNode(nextWord.word)]),
+      el('div', {className:'word-phonetic'}, [document.createTextNode(nextWord.phonetic||'')]),
+      el('div', {className:'word-divider'}, []),
+      el('div', {className:'word-cn'}, [document.createTextNode(nextWord.meaning||'(暂无释义)')]),
+      nextWord.explanation ? el('div', {className:'word-morph'}, [document.createTextNode(nextWord.explanation)]) : el('div', {className:'word-morph'}, []),
+      el('div', {className:'word-tap-hint'}, [document.createTextNode('轻触卡片查看释义')])
+    ]);
+    wrap.appendChild(card);
+    wrap.appendChild(el('div', {className:'study-buttons'}, [
+      el('button', {className:'study-btn wrong',onClick:()=>navigate('study')}, [document.createTextNode('❌ 不认识')]),
+      el('button', {className:'study-btn almost',onClick:()=>navigate('study')}, [document.createTextNode('🤔 模糊')]),
+      el('button', {className:'study-btn correct',onClick:()=>navigate('study')}, [document.createTextNode('✅ 认识')])
+    ]));
+  } else {
+    // 没有复习，开始学习新词
+    wrap.appendChild(el('div', {className:'card',style:'text-align:center;padding:var(--space-xl)'}, [
+      el('div', {style:'font-size:3rem'}, [document.createTextNode('🎉')]),
+      el('p', {style:'margin-top:var(--space-md)'}, [document.createTextNode('今日复习已完成！')]),
+      el('button', {className:'btn btn-primary mt-md',onClick:()=>navigate('study')}, [document.createTextNode('🚀 学习新词')])
     ]));
   }
 
-  // 岛屿预览
-  const level = getIslandLevel(stats.total);
-  if (level > 0) {
-    wrap.appendChild(el('div', {className:'card mb-md',style:'text-align:center;padding:var(--space-md)'}, [
-      el('div', {style:'font-size:2rem'}, [document.createTextNode(getIslandEmojis(stats.total))]),
-      el('div', {style:'font-weight:700;color:var(--color-success);margin-top:var(--space-xs)'}, [document.createTextNode(`Lv.${level} ${getIslandName(stats.total)}`)]),
-      el('div', {className:'text-muted',style:'font-size:0.8rem'}, [document.createTextNode(`${stats.total} 个词汇建材`)]),
-      el('button', {className:'btn btn-sm mt-sm',onClick:()=>navigate('island')}, [document.createTextNode('🏝️ 查看岛屿')])
-    ]));
-  }
+  // 统计
+  wrap.appendChild(el('div', {className:'stats-grid'}, [
+    el('div', {className:'stat-card'}, [el('div',{className:'stat-num c1'},[document.createTextNode(totalWords)]), el('div',{className:'stat-lbl'},[document.createTextNode('词库总量')])]),
+    el('div', {className:'stat-card'}, [el('div',{className:'stat-num c2'},[document.createTextNode(todayLearned)]), el('div',{className:'stat-lbl'},[document.createTextNode('今日已学')])]),
+    el('div', {className:'stat-card'}, [el('div',{className:'stat-num c3'},[document.createTextNode(`${stats.avgCorrect}%`)]), el('div',{className:'stat-lbl'},[document.createTextNode('正确率')])])
+  ]));
 
   return wrap;
 }
